@@ -1,0 +1,132 @@
+#version 460 core
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba32f, binding = 0) uniform image2D img_output;
+layout (std140, binding = 1) uniform info {
+    float time;
+    int width;
+    int height;
+};
+
+float draw_axes(vec2 coords) {
+    float eps = 0.05;
+    float d = min(abs(coords.x), abs(coords.y));
+
+    return 1.0 - smoothstep(0.5 * eps, eps, d);
+}
+
+float draw_grid(vec2 coords) {
+    float eps = 0.02;
+    vec2 folded = abs(coords - round(coords));
+    float d = min(folded.x, folded.y);
+
+    return min(1.0 - smoothstep(0.0, eps, d), 0.2);
+}
+
+float int_line_func(vec2 origin, vec2 coords) {
+    return origin.y * exp(2.0 * (coords.x - origin.x));
+}
+
+vec2 int_line_grad(vec2 origin, vec2 coords) {
+    float der = 2.0 * int_line_func(origin, coords);
+
+    return vec2(1, der);
+}
+
+float draw_int_line(vec2 origin, vec2 coords) {
+    float f_value = int_line_func(origin, coords);
+    float grad_len = length(int_line_grad(origin, coords));
+
+    float eps = 0.05;
+    float d = 0.5;
+    if (!(isinf(f_value) || isinf(grad_len))) {
+        d = abs(coords.y - f_value) / grad_len;
+    }
+
+    return 1.0 - smoothstep(0.0, eps, d);
+}
+
+float equipot_line_func(vec2 coords) {
+    return 1.0 - cos(coords.x + coords.y * coords.y);
+}
+
+vec2 equipot_line_grad(vec2 coords) {
+    float der_x = sin(coords.x + coords.y * coords.y);
+    float der_y = 2 * coords.y * sin(coords.x + coords.y * coords.y);
+
+    return vec2(der_x, der_y);
+}
+
+float equipot_line_hess(vec2 coords) {
+    float xx = cos(coords.x + coords.y * coords.y);
+    float yy = 4 * coords.y * coords.y * cos(coords.x + coords.y * coords.y) + 2 * sin(coords.x + coords.y * coords.y);
+    float xy = 2 * coords.y * cos(coords.x + coords.y * coords.y);
+
+    return sqrt(xx * xx + 2 * xy * xy + yy * yy);
+}
+
+float draw_equipot_line(float value, vec2 coords) {
+    float eps = 0.08;
+
+    float f = abs(equipot_line_func(coords) - value);
+    float g = length(equipot_line_grad(coords));
+    float h = equipot_line_hess(coords);
+
+    float d = (g + sqrt(g * g + 2.0 * f * h)) / h;
+
+    return 1.0 - smoothstep(0.0, eps, d);
+}
+
+vec4 blend(vec4 first, vec4 second) {
+    vec4 new = vec4(0.0);
+    new.a = second.a + first.a - first.a * second.a;
+    new.rgb = (first.rgb * first.a * (1 - second.a) + second.rgb * second.a) / new.a;
+
+    return any(isnan(new)) ? vec4(0.0) : new;
+}
+
+void main() {
+    ivec2 texture_size = imageSize(img_output);
+	ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    float aspect_ratio = float(width) / float(height);
+    vec2 uv = (vec2(texel_coord) / texture_size * 2.0 - 1.0) * vec2(aspect_ratio, 1.0);
+
+    vec2 plot = uv * 10.0;
+
+    // Axes color
+    float axes_alpha = draw_axes(plot);
+    vec4 axes_color = vec4(0.2, 0.2, 0.2, axes_alpha);
+
+    // Grid color
+    float grid_alpha = draw_grid(plot);
+    vec4 grid_color = vec4(0.2, 0.2, 0.2, grid_alpha);
+
+    // Integral lines color
+    float int_line_alpha = 0.0;
+    for (float i = -11.0; i <= 11.0; i += 1.0) {
+        for (float j = -1.0; j <= 1.0; j += 1.0) {
+            int_line_alpha += draw_int_line(vec2(i, j), plot);
+        }
+    }
+    int_line_alpha = clamp(int_line_alpha, 0.0, 0.6);
+    vec4 int_line_color = vec4(0.7, 0.0, 0.0, int_line_alpha);
+
+    // Equipotential lines color
+    float equipot_line_alpha = 0.0;
+    for (float value = 0.0; value <= 2.0; value += 1.0) {
+        equipot_line_alpha += draw_equipot_line(value, plot);
+    }
+    equipot_line_alpha = clamp(equipot_line_alpha, 0.0, 0.6);
+    vec4 equipot_line_color = vec4(0.0, 0.0, 0.7, equipot_line_alpha);
+
+    // Blending of colors
+    vec4 colors[] = vec4[](grid_color, axes_color, int_line_color, equipot_line_color);
+    vec4 res_color = vec4(0.0);
+    for (int i = 0; i < colors.length(); ++i) {
+        res_color = blend(res_color, colors[i]);
+    }
+
+    imageStore(img_output, texel_coord, res_color);
+}

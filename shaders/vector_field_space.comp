@@ -1,0 +1,239 @@
+#version 460 core
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba32f, binding = 0) uniform image2D img_output;
+layout (std140, binding = 1) uniform info {
+    float time;
+    int width;
+    int height;
+};
+layout (std140, binding = 2) uniform camera {
+    vec3 cam_position;
+    mat3 cam_rotation;
+    float cam_fov;
+    float cam_focal_length;
+};
+
+#define MAX_STEPS 500
+#define MAX_DISTANCE 150.0
+#define MIN_SURFACE_DISTANCE 0.05
+
+#define SQR(x) ((x) * (x))
+
+bool is_oob(vec3 ro, vec3 p) {
+    return length(p - ro) > MAX_DISTANCE;
+}
+
+vec3 get_bounding_sphere_color(vec3 rd) {
+    float t = 1.0 - abs(sin(rd.y * 3.14 / 2.0));
+    vec3 blue = vec3(216.0, 249.0, 255.0) / 255.0;
+
+    return mix(vec3(1.0), blue, t);
+}
+
+vec4 sdf_sphere(vec3 p, vec3 pos, float r) {
+    float d = length(p - pos) - r;
+    if (d < MIN_SURFACE_DISTANCE) {
+        return vec4(0.7, 0.0, 0.0, -1.0);
+    }
+
+    return vec4(0.0, 0.0, 0.0, d);
+}
+
+vec4 sdf_cube(vec3 p, vec3 pos, float s) {
+    vec3 q = abs(p - pos) - s;
+    float d = length(max(q, 0.0)) + clamp(q.x, max(q.y, q.z), 0.0);
+    if (d < MIN_SURFACE_DISTANCE) {
+        return vec4(0.7, 0.0, 0.0, -1.0);
+    }
+
+    return vec4(0.0, 0.0, 0.0, d);
+}
+
+vec3 checkerboard_color(vec3 p) {
+    float checker = sign(sin(p.x * 4.0) * sin(p.z * 4.0));
+    
+    return mix(vec3(0.4), vec3(0.6), checker);
+}
+
+vec4 sdf_plane(vec3 p, float h) {
+    float d = abs(p.y - h);
+    if (d < MIN_SURFACE_DISTANCE) {
+        return vec4(checkerboard_color(p), -1.0);
+    }
+
+    return vec4(0.0, 0.0, 0.0, d);
+}
+
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+vec3 height_color(vec3 p) {
+    return hsv2rgb(vec3(((p.y + 0.0) / 10.0 * 300.0 - 55.0) / 355.0 + (time / 10.0), 1.0, 1.0));
+}
+
+#define SCALE 5.0
+#define YSCALE 5.0
+
+float func(vec3 p) {
+    return 1.0 - cos(p.x / SCALE + p.z * p.z / (SCALE * SCALE)) - p.y / YSCALE;
+}
+
+vec3 grad(vec3 p) {
+    float dx = sin(p.x / SCALE + p.z * p.z / (SCALE * SCALE)) / SCALE;
+    float dy = -1.0 / YSCALE;
+    float dz = 2.0 * p.z * sin(p.x / SCALE + p.z * p.z / (SCALE * SCALE)) / (SCALE * SCALE);
+
+    return vec3(dx, dy, dz);
+}
+
+float hess(vec3 p) {
+    float dxx = cos(p.x / SCALE + p.z * p.z / (SCALE * SCALE)) / (SCALE * SCALE);
+    float dxy = 0.0;
+    float dxz = 2.0 * p.z * cos(p.x / SCALE + p.z * p.z / (SCALE * SCALE)) / (SCALE * SCALE * SCALE);
+
+    float dyy = 0.0;
+    float dyz = 0.0;
+
+    float dzz = 2.0 * sin(p.x / SCALE + p.z * p.z / (SCALE * SCALE)) / (SCALE * SCALE)
+        + 4.0 * p.z * p.z * cos(p.x / SCALE + p.z * p.z / (SCALE * SCALE)) / (SCALE * SCALE * SCALE * SCALE);
+
+    return sqrt(SQR(dxx) + SQR(dyy) + SQR(dzz) + 2 * (SQR(dxy) + SQR(dxz) + SQR(dyz)));
+}
+
+vec4 sdf_graph(vec3 p, float s) {
+    vec3 tp = p - vec3(0.0, s, 0.0);
+
+    float f = abs(func(tp));
+    float g = length(grad(tp));
+    float h = hess(tp);
+
+    float d = (-g + sqrt(SQR(g) + 2.0 * f * h)) / h;
+
+    if (d < MIN_SURFACE_DISTANCE) {
+        vec3 checkerboard = checkerboard_color(p);
+        vec3 height_col = height_color(p);
+        vec3 res_color = mix(checkerboard, height_col, 0.7);
+
+        return vec4(res_color, -1.0);
+    }
+
+    return vec4(0.0, 0.0, 0.0, d);
+}
+
+vec4 sdf_axes(vec3 p, vec3 origin) {
+    vec3 tp = p - origin;
+
+    vec3 dists = vec3(
+        length(tp.yz),
+        length(tp.xz),
+        length(tp.xy)
+    ) - 0.5;
+    float min_d = min(dists.x, min(dists.y, dists.z));
+    if (min_d < MIN_SURFACE_DISTANCE) {
+        return vec4(
+            float(min_d == dists.x),
+            float(min_d == dists.y),
+            float(min_d == dists.z),
+            -1.0
+        );
+    }
+
+    return vec4(0.0, 0.0, 0.0, min_d);
+}
+
+vec4 get_step(vec3 p) {
+    #define GRAPH 0
+    #define AXES 1
+
+    int bb_check[] = { 0, 1 };
+    float bb_dists[] = { MAX_DISTANCE, MAX_DISTANCE };
+
+    float obj_dists[] = { MAX_DISTANCE, MAX_DISTANCE };
+    vec3 obj_colors[] = { vec3(0.0), vec3(0.0) };
+
+    float yshift = -10.0;
+
+
+    // Check graph bounding box
+    vec4 cube = sdf_cube(p, vec3(0.0, 0.0, 0.0), 30.0);
+    if (cube.w == -1.0) {
+        bb_check[GRAPH] = 1;
+    } else {
+        bb_dists[GRAPH] = cube.w;
+    }
+
+    // Check graph
+    if (bb_check[GRAPH] == 1) {
+        vec4 graph = sdf_graph(p, yshift);
+        obj_dists[GRAPH] = graph.w;
+        if (graph.w == -1.0) {
+            obj_colors[GRAPH] = graph.xyz;
+        }
+    }
+
+    // Check axes
+    if (bb_check[AXES] == 1) {
+        vec4 axes = sdf_axes(p, vec3(-30.0, yshift, -30.0));
+        obj_dists[AXES] = axes.w;
+        if (axes.w == -1.0) {
+            obj_colors[AXES] = axes.xyz;
+        }
+    }
+
+    
+    // Compile distances
+    float min_d = MAX_DISTANCE;
+    vec3 res_color = vec3(0.0);
+    for (int i = 0; i < obj_dists.length(); ++i) {
+        if (obj_dists[i] < min_d) {
+            min_d = obj_dists[i];
+            res_color = obj_colors[i];
+        }
+    }
+
+    for (int i = 0; i < 2; ++i) {
+        if (bb_dists[i] < min_d) {
+            min_d = bb_dists[i];
+        }
+    }
+
+    return vec4(res_color, min_d);
+}
+
+vec3 ray_march(vec3 ro, vec3 rd) {
+    vec3 p = ro;
+
+    for (int i = 0; i < MAX_STEPS; ++i) {
+        vec4 surface_data = get_step(p);
+        if (surface_data.w == -1.0) {
+            return surface_data.xyz;
+        }
+
+        p += surface_data.w * rd;
+        if (is_oob(ro, p)) {
+            return get_bounding_sphere_color(rd);
+        }
+    }
+
+    return get_bounding_sphere_color(rd);
+}
+
+void main() {
+    ivec2 texture_size = imageSize(img_output);
+	ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    float aspect_ratio = float(width) / float(height);
+    float fov = radians(cam_fov);
+    vec2 uv = (vec2(texel_coord) / texture_size * 2.0 - 1.0) * vec2(aspect_ratio, 1.0) * tan(fov / 2);
+
+    vec3 ro = cam_position;
+    vec3 rd = cam_rotation * normalize(vec3(uv, cam_focal_length));
+
+    vec3 color = ray_march(ro, rd);
+    imageStore(img_output, texel_coord, vec4(color, 1.0));
+}

@@ -1,0 +1,94 @@
+#version 460 core
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba32f, binding = 0) uniform image2D img_output;
+layout (std140, binding = 1) uniform info {
+    float time;
+    int width;
+    int height;
+};
+
+float draw_axes(vec2 coords) {
+    float eps = 0.02;
+    float d = min(abs(coords.x), abs(coords.y));
+
+    return 1.0 - smoothstep(0.95 * eps, eps, d);
+}
+
+float draw_grid(vec2 coords) {
+    float eps = 0.015;
+    vec2 folded = abs(coords - round(coords));
+    float d = min(folded.x, folded.y);
+
+    return min(1.0 - smoothstep(0.0, eps, d), 0.2);
+}
+
+float draw_small_grid(vec2 coords) {
+    if (coords.x > 1.011 || coords.y > 1.011 || coords.x < 0.0 || coords.y < 0.0) {
+        return 0.0;
+    }
+
+    float eps = 0.08;
+    vec2 folded = abs(coords * 5.0 - round(coords * 5.0));
+    float d = min(folded.x, folded.y);
+
+    return min(1.0 - smoothstep(0.95 * eps, eps, d), 0.5);
+}
+
+float draw_segment(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p-a, ba = b-a;
+    float h = clamp( dot(pa,ba)/dot(ba,ba), 0.0, 1.0 );
+
+    float d = length( pa - ba*h );
+    float eps = 0.025;
+
+    return min(1.0 - smoothstep(0.95 * eps, eps, d), 1.0);
+}
+
+vec4 blend(vec4 first, vec4 second) {
+    vec4 new = vec4(0.0);
+    new.a = second.a + first.a - first.a * second.a;
+    new.rgb = (first.rgb * first.a * (1 - second.a) + second.rgb * second.a) / new.a;
+
+    return any(isnan(new)) ? vec4(0.0) : new;
+}
+
+void main() {
+    ivec2 texture_size = imageSize(img_output);
+	ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    float aspect_ratio = float(width) / float(height);
+    vec2 uv = (vec2(texel_coord) / texture_size * 2.0 - 1.0) * vec2(aspect_ratio, 1.0);
+
+    vec2 plot = uv * 0.75 + vec2(0.5, 0.5);
+
+    // Axes color
+    float axes_alpha = draw_axes(plot);
+    vec4 axes_color = vec4(0.2, 0.2, 0.2, axes_alpha);
+
+    // Grid color
+    float grid_alpha = draw_grid(plot);
+    vec4 grid_color = vec4(0.2, 0.2, 0.2, grid_alpha);
+
+    // Small grid color
+    float small_grid_alpha = draw_small_grid(plot);
+    vec4 small_grid_color = vec4(0.2, 0.2, 0.2, small_grid_alpha);
+
+    // X Path
+    float x_path_alpha = draw_segment(plot, vec2(0.0, 0.0), vec2(0.8, 0.0));
+    vec4 x_path_color = vec4(0.7, 0.0, 0.0, x_path_alpha);
+
+    // Y Path
+    float y_path_alpha = draw_segment(plot, vec2(0.8, 0.0), vec2(0.8, 0.6));
+    vec4 y_path_color = vec4(0.0, 0.7, 0.0, y_path_alpha);
+
+    // Blending of colors
+    vec4 colors[] = vec4[](grid_color, axes_color, x_path_color, y_path_color);
+    vec4 res_color = vec4(0.0);
+    for (int i = 0; i < colors.length(); ++i) {
+        res_color = blend(res_color, colors[i]);
+    }
+
+    imageStore(img_output, texel_coord, res_color);
+}

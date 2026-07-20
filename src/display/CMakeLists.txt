@@ -1,0 +1,1 @@
+target_sources(maniray PRIVATE window.c engine.c shader.c program.c storage_buffer.c uniform_buffer.c camera.c)

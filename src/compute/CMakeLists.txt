@@ -1,0 +1,1 @@
+target_sources(maniray PRIVATE manifold.c octree.c)

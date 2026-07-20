@@ -1,0 +1,127 @@
+#version 460 core
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba32f, binding = 0) uniform image2D img_output;
+layout (std140, binding = 1) uniform info {
+    float time;
+    int width;
+    int height;
+};
+
+#define MAX_LEVEL 16
+
+#define NODE_FLAG_ACTIVE (1 << 0)
+#define NODE_FLAG_LEAF (1 << 1)
+
+struct octree_node {
+    uint flags;
+    uint level;
+
+    uint chart_idx;
+    float x, y, z;
+    float dim;
+
+    int root;
+    int parent;
+    int first_child;
+
+    float value;
+    float gradient[3];
+};
+
+layout (std430, binding = 0) buffer octree {
+    octree_node nodes[];
+};
+
+#define OCTREE_DIM 8.0
+
+float vertical_coord() {
+    float z = time / 2.0;
+    z = z - floor(z / OCTREE_DIM) * OCTREE_DIM;
+    z -= OCTREE_DIM / 2.0;
+
+    return z;
+}
+
+float ninf3(vec3 v) {
+    vec3 a = abs(v);
+
+    return max(max(a.x, a.y), a.z);
+}
+
+bool is_inside_node(uint node_idx, vec3 coords) {
+    vec3 center = vec3(nodes[node_idx].x, nodes[node_idx].y, nodes[node_idx].z);
+    float hdim = nodes[node_idx].dim / 2.0;
+
+    return ninf3(coords - center) <= hdim;
+}
+
+float approx_dist(uint idx, vec3 p) {
+    vec3 center = vec3(nodes[idx].x, nodes[idx].y, nodes[idx].z);
+
+    vec3 grad = vec3(nodes[idx].gradient[0], nodes[idx].gradient[1], nodes[idx].gradient[2]);
+    float approx = nodes[idx].value + dot(grad, p - center);
+
+    return approx;
+}
+
+vec4 draw_octree_slice(vec2 xy) {
+    float z = vertical_coord();
+    vec3 coords = vec3(xy, z);
+    if (!is_inside_node(0, coords)) {
+        return vec4(0.5, 0.0, 0.0, 1.0);
+    }
+
+    int idx = 0;
+    for (int i = 0; i <= MAX_LEVEL; ++i) {
+        vec3 center = vec3(nodes[idx].x, nodes[idx].y, nodes[idx].z);
+
+        if (bool(nodes[idx].flags & NODE_FLAG_LEAF)) {
+            float hdim = nodes[idx].dim / 2.0;
+            float c = 1.0 - ninf3(coords - center) / hdim;
+
+            if (abs(length(coords) - 1.0) < 0.01) {
+                return vec4(0.0, 0.0, 1.0, 1.0);
+            }
+
+            return vec4(0.1, (approx_dist(idx, coords) + 2.0) / 5.0 / 1.41, 0.0, 1.0);
+
+            /* if (c < 0.01) {
+                return vec4(0.0, 0.0, 0.0, 1.0);
+            } else {
+                // return vec4(0.1, z + 0.5, 0.9, 1.0);
+                return vec4(0.1, (nodes[idx].value + 1.0) / 5.0 / 1.41, 0.0, 1.0);
+            } */
+
+            // return vec4(c, z + 0.5, c, 1.0);
+        }
+
+        ivec3 cmp = ivec3(greaterThanEqual(coords, center));
+        int child_idx = cmp.x | (cmp.y << 1) | (cmp.z << 2);
+
+        idx = nodes[idx].first_child + child_idx;
+    }
+}
+
+void main() {
+    ivec2 texture_size = imageSize(img_output);
+	ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    float aspect_ratio = float(width) / float(height);
+    vec2 uv = (vec2(texel_coord) / texture_size * 2.0 - 1.0) * vec2(aspect_ratio, 1.0);
+
+    vec2 plot = uv * OCTREE_DIM / 1.5;
+
+    /* vec4 colors[] = vec4[](grid_color, axes_color, int_line_color, equipot_line_color);
+    vec4 res_color = vec4(0.0);
+    for (int i = 0; i < colors.length(); ++i) {
+        res_color = blend(res_color, colors[i]);
+    } */
+
+    vec4 res_color = draw_octree_slice(plot);
+
+    // vec4 res_color = vec4(float(nodes[0].first_child), 0.0, 0.0, 1.0);
+
+    imageStore(img_output, texel_coord, res_color);
+}
