@@ -1,6 +1,5 @@
 #include <stdio.h>
-
-#include <stdalign.h>
+#include <time.h>
 
 #include "maniray/display/engine.h"
 #include "maniray/display/camera.h"
@@ -29,7 +28,7 @@ void update_func(mr_engine *engine, void *userdata) {
 
     mr_camera_proccess_movement(camera, window);
 
-    printf("FPS: %f\n", 1.0 / mr_window_get_delta_time(window));
+    // printf("FPS: %f\n", 1.0 / mr_window_get_delta_time(window));
 }
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -44,7 +43,7 @@ float linf(float x, float y, float z) {
 }
 
 float cube_sdf(mr_ocforest *forest, mr_int idx) {
-    mr_octree_node *node = mr_mem_pool_ptr(forest->nodes, 0, idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
 
     float x = node->x;
     float y = node->y;
@@ -66,7 +65,7 @@ float cube_sdf(mr_ocforest *forest, mr_int idx) {
 int write_dist(mr_ocforest *forest, mr_int idx, void *userdata) {
     MR_UNUSED(userdata);
 
-    mr_octree_node *node = mr_mem_pool_ptr(forest->nodes, 0, idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
 
     float x = node->x;
     float y = node->y;
@@ -106,10 +105,30 @@ int write_dist(mr_ocforest *forest, mr_int idx, void *userdata) {
     return MR_SUCCESS;
 }
 
-bool adaptive_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
-    mr_octree_node *node = mr_mem_pool_ptr(forest->nodes, 0, idx);
+mr_int found_node = 0;
 
-    return l2(node->x, node->y, node->z) < 1.5f;
+bool adaptive_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
+    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+    float norm = l2(node->x, node->y, node->z);
+
+    return norm < 2.25f && norm > 1.75f;
+}
+
+#define DIM 8.0f
+
+bool point_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
+    float mul = DIM;
+    float x = 0.32f * mul;
+    float y = 0.07f * mul;
+    float z = -0.24f * mul;
+
+    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+
+    if ((node->flags & MR_OCTREE_NODE_FLAG_LEAF) && (linf(x - node->x, y - node->y, z - node->z) <= node->dim / 2.0f)) {
+        found_node = idx;
+    }
+
+    return linf(x - node->x, y - node->y, z - node->z) <= node->dim / 2.0f;
 }
 
 mr_ocforest *setup_ocforest() {
@@ -120,17 +139,51 @@ mr_ocforest *setup_ocforest() {
             .x = 0.0f,
             .y = 0.0f,
             .z = 0.0f,
-            .dim = 8.0f,
+            .dim = DIM,
         },
     };
     mr_ocforest *forest = mr_ocforest_create(NULL, descs, 1);
 
-    for (size_t i = 0; i < MR_OCTREE_MAX_LEVEL - 1; ++i) {
+    /* for (size_t i = 0; i < MR_OCTREE_MAX_LEVEL - 1; ++i) {
         mr_octree_refine_all(forest, 0);
     }
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_cond_cb(adaptive_refine, NULL));
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_cond_cb(adaptive_refine, NULL)); */
 
-    mr_octree_apply(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_apply_cb(write_dist, NULL));
+    /* for (size_t i = 0; i < MR_OCTREE_MAX_LEVEL; ++i) {
+        mr_octree_refine(forest, 0, mr_make_octree_cond_cb(point_refine, NULL), mr_octree_cond_cb_null());
+    } */
+
+    // mr_octree_refine(forest, 0, mr_make_octree_cond_cb(point_refine, NULL), mr_octree_cond_cb_null(), true);
+
+
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+
+    mr_octree_refine_all(forest, 0);
+    mr_octree_refine_all(forest, 0);
+    mr_octree_refine_all(forest, 0);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_cond_cb(adaptive_refine, NULL), true);
+
+    mr_octree_balance(forest, 0);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_cond_cb(adaptive_refine, NULL), true);
+    mr_octree_balance(forest, 0);
+
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
+                           (end.tv_nsec - start.tv_nsec) / 1000;
+
+    printf("Elapsed time: %lld microseconds\n", elapsed_us);
+
+
+
+    mr_octree_leaves_apply(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_apply_cb(write_dist, NULL), false);
+
+    mr_int node_idx = mr_octree_find_face_neighbor(forest, found_node, MR_OCTREE_DIRECTION_MI_Y);
+    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+
+    // printf("%u: %d\n", node->level, node_idx);
 
     return forest;
 }
@@ -182,11 +235,11 @@ int run_display() {
 
     mr_storage_buffer *octree_buffer = mr_storage_buffer_create(0);
     mr_storage_buffer_alloc(octree_buffer, mr_ocforest_size(forest) * sizeof(mr_octree_node),
-        MR_STATIC_DRAW, mr_mem_pool_array_ptr(forest->nodes, 0));
+        MR_STATIC_DRAW, mr_mem_pool_array_ptr(forest->nodes, MR_OCTREE_NODE_FIELD));
 
     update_userdata update_data = { window, camera, camera_buffer };
     
-    mr_shader_source compute_shader_source = mr_shader_source_read("../shaders/octree_space_test.comp", MR_COMPUTE);
+    mr_shader_source compute_shader_source = mr_shader_source_read("../shaders/octree_slice.comp", MR_COMPUTE);
     mr_program *compute_program = mr_program_create((mr_shader_source[]){ compute_shader_source }, 1);
     mr_shader_source_destroy(compute_shader_source);
 

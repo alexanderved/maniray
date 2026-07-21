@@ -37,11 +37,21 @@ layout (std430, binding = 0) buffer octree {
 #define OCTREE_DIM 8.0
 
 float vertical_coord() {
-    float z = time / 2.0;
+    float z = time / 1.0;
     z = z - floor(z / OCTREE_DIM) * OCTREE_DIM;
     z -= OCTREE_DIM / 2.0;
 
     return z;
+
+    // return -0.24 * OCTREE_DIM;
+
+    // return 0.1;
+}
+
+float ninf2(vec2 v) {
+    vec2 a = abs(v);
+
+    return max(a.x, a.y);
 }
 
 float ninf3(vec3 v) {
@@ -79,13 +89,19 @@ vec4 draw_octree_slice(vec2 xy) {
 
         if (bool(nodes[idx].flags & NODE_FLAG_LEAF)) {
             float hdim = nodes[idx].dim / 2.0;
-            float c = 1.0 - ninf3(coords - center) / hdim;
+            float c = hdim - ninf2(coords.xy - center.xy);
 
-            if (abs(length(coords) - 1.0) < 0.01) {
+            if (c < 0.001 * OCTREE_DIM) {
+                return vec4(0.0, 0.0, 0.0, 1.0);
+            }
+
+            return vec4(0.1, 1.0, 0.0, 1.0);
+
+            /* if (abs(length(coords) - 1.0) < 0.01) {
                 return vec4(0.0, 0.0, 1.0, 1.0);
             }
 
-            return vec4(0.1, (approx_dist(idx, coords) + 2.0) / 5.0 / 1.41, 0.0, 1.0);
+            return vec4(0.1, (approx_dist(idx, coords) + 2.0) / 5.0 / 1.41, 0.0, 1.0); */
 
             /* if (c < 0.01) {
                 return vec4(0.0, 0.0, 0.0, 1.0);
