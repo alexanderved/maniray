@@ -5,8 +5,13 @@
 #include "maniray/utils/mem_pool.h"
 #include "maniray/compute/manifold.h"
 
-#define MR_OCTREE_MAX_LEVEL 6
 #define MR_OCTREE_NB_CHILDREN 8
+#define MR_OCTREE_MAX_LEVEL 6
+
+#if MR_OCTREE_MAX_LEVEL > 10
+#line 8
+#error "The height of the octree is too large"
+#endif
 
 #define MR_OCTREE_NODE_FLAG_ACTIVE (1 << 0)
 #define MR_OCTREE_NODE_FLAG_LEAF (1 << 1)
@@ -15,6 +20,7 @@
 #define MR_OCTREE_FLAG_PERIODIC_Y (1 << 1)
 #define MR_OCTREE_FLAG_PERIODIC_Z (1 << 2)
 
+#define MR_OCTREE_NODE_NB_MAIN_FIELDS 1
 #define MR_OCTREE_NODE_FIELD 0
 
 typedef enum mr_octree_direction {
@@ -92,20 +98,20 @@ static inline mr_octree_cond_cb mr_octree_cond_cb_null() {
     return (mr_octree_cond_cb) { NULL, NULL };
 }
 
-mr_ocforest *mr_ocforest_create(mr_manifold *manifold, mr_octree_root_desc roots[], size_t nb_roots);
+mr_ocforest *mr_ocforest_create(
+    mr_manifold *manifold,
+    mr_octree_root_desc roots[],
+    size_t nb_roots,
+    size_t extra_fields[],
+    size_t nb_extra_fields
+);
 void mr_ocforest_destroy(mr_ocforest *forest);
 
 size_t mr_ocforest_size(mr_ocforest *forest);
 mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx);
+mr_octree_node *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field);
 
-void mr_octree_apply(
-    mr_ocforest *forest,
-    mr_index octree_idx,
-    mr_octree_cond_cb filter,
-    mr_octree_apply_cb apply,
-    bool recursive
-);
-void mr_octree_leaves_apply(
+int mr_octree_leaves_apply(
     mr_ocforest *forest,
     mr_index octree_idx,
     mr_octree_cond_cb filter,
@@ -113,7 +119,7 @@ void mr_octree_leaves_apply(
     bool recursive
 );
 
-mr_int mr_octree_find_leaf(mr_ocforest *forest, mr_index octree_idx, mr_octree_cond_cb cond);
+mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]);
 mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_octree_direction dir);
 
 void mr_octree_activate(mr_ocforest *forest, mr_index octree_idx, mr_octree_cond_cb cond);

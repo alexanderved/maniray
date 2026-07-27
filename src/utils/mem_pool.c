@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 #include <limits.h>
 
 #include "maniray/utils/mem_pool.h"
@@ -237,19 +236,6 @@ bool mr_mem_pool_is_block_accessible(mr_mem_pool *pool, mr_index idx) {
         && is_element_valid(pool, idx);
 }
 
-static void write_element(mr_mem_pool *pool, mr_index idx, va_list elem) {
-    for (mr_index i = 0; i < (mr_isize)pool->nb_types; ++i) {
-        void *ptr = mr_mem_pool_ptr(pool, i, idx);
-
-        void *value = va_arg(elem, void *);
-        if (value) {
-            memcpy(ptr, value, pool->block_sizes[i]);
-        } else {
-            memset(ptr, 0, pool->block_sizes[i]);
-        }
-    }
-}
-
 static void change_element_validity(mr_mem_pool *pool, mr_index idx, bool value) {
     mr_uint *chunk = &pool->valid[idx / MR_INT_NB_BITS];
 
@@ -351,22 +337,6 @@ mr_index mr_mem_pool_alloc_many(mr_mem_pool *pool, size_t nb_elems) {
     for (size_t i = 0; i < nb_elems; ++i) {
         change_element_validity(pool, idx + i, true);
     }
-
-    return idx;
-}
-
-mr_index mr_mem_pool_insert(mr_mem_pool *pool, ...) {
-    if (!pool) {
-        return MR_INVALID_INDEX;
-    }
-
-    va_list elem;
-    va_start(elem, pool);
-
-    mr_index idx = mr_mem_pool_alloc(pool);
-    write_element(pool, idx, elem);
-
-    va_end(elem);
 
     return idx;
 }

@@ -95,7 +95,11 @@ vec4 draw_octree_slice(vec2 xy) {
                 return vec4(0.0, 0.0, 0.0, 1.0);
             }
 
-            return vec4(0.1, 1.0, 0.0, 1.0);
+            if (bool(nodes[idx].flags & NODE_FLAG_ACTIVE)) {
+                return vec4(0.1, 1.0, 0.0, 1.0);
+            }
+
+            return vec4(0.1, 0.3, 0.0, 1.0);
 
             /* if (abs(length(coords) - 1.0) < 0.01) {
                 return vec4(0.0, 0.0, 1.0, 1.0);

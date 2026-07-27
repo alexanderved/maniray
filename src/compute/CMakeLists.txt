@@ -1,1 +1,2 @@
-target_sources(maniray PRIVATE manifold.c octree.c)
+target_sources(maniray PRIVATE manifold.c octree.c fvm_poisson.c
+    sparse_matrix.c)
