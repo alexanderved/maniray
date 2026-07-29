@@ -4,69 +4,133 @@
 #include "maniray/utils/misc.h"
 #include "maniray/utils/xmalloc.h"
 
-mr_float mr_chart_euclidean_metric(const mr_manifold *manifold, const mr_chart *chart, const mr_float *p, size_t i, size_t j) {
-    MR_UNUSED(manifold);
+mr_float mr_chart_euclidean_metric(const mr_chart *chart, const mr_float *p, size_t i, size_t j) {
     MR_UNUSED(chart);
     MR_UNUSED(p);
 
-    return i == j ? 1.0 : 0.0;
+    return i == j ? 1.0f : 0.0f;
 }
 
-void mr_chart_transition_dummy(const mr_manifold *manifold, const mr_chart *c1, const mr_chart *c2, mr_float *p_out, const mr_float *p_in) {
-    MR_UNUSED(c1);
-    MR_UNUSED(c2);
-
-    memcpy(p_out, p_in, sizeof(mr_float) * manifold->dim);
+void mr_chart_default_dtor(mr_chart_desc *chart) {
+    free(chart->userdata);
 }
 
-mr_float mr_chart_inner_product(const mr_manifold *manifold, const mr_chart *chart, const mr_float *p, const mr_float *v1, const mr_float *v2) {
+mr_float mr_inner_product(const mr_manifold *manifold, size_t chart_idx, const mr_float *p, const mr_float *v1, const mr_float *v2) {
     mr_float res = 0.0f;
     for (size_t i = 0; i < manifold->dim; ++i) {
         for (size_t j = 0; j < manifold->dim; ++j) {
-            res += chart->metric(manifold, chart, p, i, j) * v1[i] * v2[j];
+            res += mr_manifold_metric(manifold, chart_idx, p, i, j) * v1[i] * v2[j];
         }
     }
 
     return res;
 }
 
-void mr_chart_init(mr_chart *chart, mr_chart_bounds_fn bounds, mr_chart_metric_fn metric) {
-    chart->bounds = bounds;
-    chart->metric = metric;
+static bool mr_transition_domain_self(const mr_transition *t, const mr_float *p) {
+    MR_UNUSED(t);
+    MR_UNUSED(p);
+
+    return true;
 }
 
-mr_manifold *mr_manifold_create(size_t dim, size_t nb_charts) {
+static int mr_transition_map_self(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
+    memcpy(p_out, p_in, t->manifold->dim * sizeof(mr_float));
+
+    return MR_SUCCESS;
+}
+
+mr_transition_desc mr_transition_desc_create_self() {
+    return (mr_transition_desc) { .domain = mr_transition_domain_self, .fn = mr_transition_map_self };
+}
+
+static bool mr_transition_domain_empty(const mr_transition *t, const mr_float *p) {
+    MR_UNUSED(t);
+    MR_UNUSED(p);
+
+    return false;
+}
+
+static int mr_transition_map_empty(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
+    MR_UNUSED(t);
+    MR_UNUSED(p_out);
+    MR_UNUSED(p_in);
+
+    return MR_FAILURE;
+}
+
+mr_transition_desc mr_transition_desc_create_empty() {
+    return (mr_transition_desc) { .domain = mr_transition_domain_empty, .fn = mr_transition_map_empty };
+}
+
+mr_manifold *mr_manifold_create(size_t dim, size_t nb_charts, const mr_chart_desc *charts, const mr_transition_desc *transitions) {
     mr_manifold *manifold = xmalloc(sizeof(mr_manifold));
 
     manifold->dim = dim;
     manifold->nb_charts = nb_charts;
 
-    manifold->charts = xcalloc(nb_charts, sizeof(mr_chart));
-    manifold->transitions = xcalloc(nb_charts * nb_charts, sizeof(mr_chart_transition_map_fn));
+    manifold->charts = xcalloc(nb_charts, sizeof(mr_chart_desc));
+    for (size_t i = 0; i < nb_charts; ++i) {
+        manifold->charts[i] = (mr_chart_desc) {
+            .bounds = charts[i].bounds,
+            .metric = charts[i].metric ? charts[i].metric : mr_chart_euclidean_metric,
+            .userdata = charts[i].userdata,
+            .dtor = charts[i].dtor ? charts[i].dtor : mr_chart_default_dtor,
+        };
+    }
+
+    manifold->transitions = xcalloc(nb_charts * nb_charts, sizeof(mr_transition_desc));
+    memcpy(manifold->transitions, transitions, nb_charts * nb_charts * sizeof(mr_transition_desc));
 
     return manifold;
 }
 
 void mr_manifold_destroy(mr_manifold *manifold) {
     free(manifold->transitions);
+    
+    mr_chart_desc *chart = NULL;
+    for (size_t i = 0; i < manifold->nb_charts; ++i) {
+        chart = &manifold->charts[i];
+        chart->dtor(chart);
+    }
     free(manifold->charts);
+
     free(manifold);
 }
 
-mr_chart *mr_manifold_get_chart(mr_manifold *manifold, size_t i) {
-    return &manifold->charts[i];
+mr_chart mr_manifold_get_chart(const mr_manifold *manifold, size_t chart_idx) {
+    mr_chart_desc *desc = &manifold->charts[chart_idx];
+    return (mr_chart) {
+        .manifold = manifold,
+        .bounds = desc->bounds,
+        .metric = desc->metric,
+        .userdata = desc->userdata,
+    };
 }
 
-void mr_manifold_set_chart(mr_manifold *manifold, size_t i, const mr_chart *chart) {
-    manifold->charts[i] = *chart;
+bool mr_manifold_is_in_bounds(const mr_manifold *manifold, size_t chart_idx, const mr_float *p) {
+    mr_chart chart = mr_manifold_get_chart(manifold, chart_idx);
+
+    return chart.bounds(&chart, p);
 }
 
-mr_chart_transition_map_fn mr_manifold_get_transition(mr_manifold *manifold, size_t i, size_t j) {
-    mr_chart_transition_map_fn t = *(manifold->transitions + i * manifold->nb_charts + j);
+mr_float mr_manifold_metric(const mr_manifold *manifold, size_t chart_idx, const mr_float *p, size_t i, size_t j) {
+    mr_chart chart = mr_manifold_get_chart(manifold, chart_idx);
 
-    return t ? t : mr_chart_transition_dummy;
+    return chart.metric(&chart, p, i, j);
 }
 
-void mr_manifold_set_transition(mr_manifold *manifold, size_t i, size_t j, mr_chart_transition_map_fn map) {
-    *(manifold->transitions + i * manifold->nb_charts + j) = map;
+int mr_manifold_transition(const mr_manifold *manifold, size_t i, size_t j, mr_float *p_out, const mr_float *p_in) {
+    mr_chart src = mr_manifold_get_chart(manifold, i);
+    mr_chart dst = mr_manifold_get_chart(manifold, j);
+
+    mr_transition_desc *desc = &manifold->transitions[i * manifold->nb_charts + j];
+    mr_transition t = {
+        .manifold = manifold,
+        .src = &src,
+        .dst = &dst,
+        .domain = desc->domain,
+        .fn = desc->fn,
+    };
+
+    return t.fn(&t, p_out, p_in);
 }

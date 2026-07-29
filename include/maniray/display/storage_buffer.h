@@ -17,7 +17,7 @@ size_t mr_storage_buffer_get_capacity(mr_storage_buffer *storage_buffer);
 void mr_storage_buffer_alloc(mr_storage_buffer *storage_buffer, mr_isize size, mr_buffer_type type, const void *data);
 void mr_storage_buffer_fill(mr_storage_buffer *storage_buffer, mr_isize offset, mr_isize size, const void *data);
 
-void *mr_storage_buffer_map(mr_storage_buffer *storage_buffer, mr_isize offset, mr_isize size, mr_uint flags);
+void *mr_storage_buffer_map(mr_storage_buffer *storage_buffer, mr_isize offset, mr_isize size, mr_bitfield flags);
 void mr_storage_buffer_unmap(mr_storage_buffer *storage_buffer);
 
 #endif // _MR_STORAGE_BUFFER_H

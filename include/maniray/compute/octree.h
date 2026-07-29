@@ -106,10 +106,13 @@ mr_ocforest *mr_ocforest_create(
     size_t nb_extra_fields
 );
 void mr_ocforest_destroy(mr_ocforest *forest);
-
 size_t mr_ocforest_size(mr_ocforest *forest);
+
 mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx);
+mr_octree_node *mr_ocforest_get_node_array(mr_ocforest *forest);
+
 mr_octree_node *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field);
+mr_octree_node *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field);
 
 int mr_octree_leaves_apply(
     mr_ocforest *forest,

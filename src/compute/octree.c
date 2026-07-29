@@ -81,8 +81,16 @@ mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx) {
     return forest ? mr_mem_pool_ptr(forest->nodes, MR_OCTREE_NODE_FIELD, idx) : NULL;
 }
 
+mr_octree_node *mr_ocforest_get_node_array(mr_ocforest *forest) {
+    return forest ? mr_mem_pool_array_ptr(forest->nodes, MR_OCTREE_NODE_FIELD) : NULL;
+}
+
 mr_octree_node *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field) {
     return forest ? mr_mem_pool_ptr(forest->nodes, MR_OCTREE_NODE_NB_MAIN_FIELDS + field, idx) : NULL;
+}
+
+mr_octree_node *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field) {
+    return forest ? mr_mem_pool_array_ptr(forest->nodes, MR_OCTREE_NODE_NB_MAIN_FIELDS + field) : NULL;
 }
 
 int mr_octree_leaves_apply(
@@ -184,6 +192,7 @@ static int locate_store_leaf(mr_ocforest *forest, mr_int node_idx, void *userdat
     return MR_SUCCESS;
 }
 
+// TODO: Handle periodicity
 mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]) {
     mr_int leaf = MR_INVALID_INDEX;
 
@@ -238,6 +247,14 @@ static mr_int mr_octree_find_face_neighbor_ext(mr_ocforest *forest, mr_int idx, 
         node = mr_ocforest_get_node(forest, curr_idx);
         parent = mr_ocforest_get_node(forest, node->parent);
         if (!parent) {
+            mr_octree_root *root = &forest->roots[node->root];
+            if (((root->flags & MR_OCTREE_FLAG_PERIODIC_X) && (dir == MR_OCTREE_DIRECTION_MI_X || dir == MR_OCTREE_DIRECTION_PL_X))
+                || ((root->flags & MR_OCTREE_FLAG_PERIODIC_Y) && (dir == MR_OCTREE_DIRECTION_MI_Y || dir == MR_OCTREE_DIRECTION_PL_Y))
+                || ((root->flags & MR_OCTREE_FLAG_PERIODIC_Z) && (dir == MR_OCTREE_DIRECTION_MI_Z || dir == MR_OCTREE_DIRECTION_PL_Z)))
+            {
+                break;
+            }
+
             return MR_INVALID_INDEX;
         }
 

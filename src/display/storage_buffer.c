@@ -55,7 +55,7 @@ void mr_storage_buffer_fill(mr_storage_buffer *storage_buffer, mr_isize offset, 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
-void *mr_storage_buffer_map(mr_storage_buffer *storage_buffer, mr_isize offset, mr_isize size, mr_uint flags) {
+void *mr_storage_buffer_map(mr_storage_buffer *storage_buffer, mr_isize offset, mr_isize size, mr_bitfield flags) {
     if (!storage_buffer) {
         return NULL;
     }

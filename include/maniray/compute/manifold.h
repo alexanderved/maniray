@@ -8,40 +8,74 @@
 #include "maniray/utils/types.h"
 
 typedef struct mr_chart mr_chart;
+typedef struct mr_chart_desc mr_chart_desc;
+
 typedef struct mr_manifold mr_manifold;
+typedef struct mr_transition mr_transition;
 
-typedef bool (*mr_chart_bounds_fn)(const mr_manifold *, const mr_chart *, const mr_float *);
-typedef mr_float (*mr_chart_metric_fn)(const mr_manifold *, const mr_chart *, const mr_float *, size_t, size_t);
+typedef bool (*mr_chart_bounds_fn)(const mr_chart *, const mr_float *);
+typedef mr_float (*mr_chart_metric_fn)(const mr_chart *, const mr_float *, size_t, size_t);
+typedef void (*mr_chart_dtor_fn)(mr_chart_desc *);
 
-typedef void (*mr_chart_transition_map_fn)(const mr_manifold *, const mr_chart *, const mr_chart *, mr_float *, const mr_float *);
-
-mr_float mr_chart_euclidean_metric(const mr_manifold *manifold, const mr_chart *chart, const mr_float *p, size_t i, size_t j);
-void mr_chart_transition_dummy(const mr_manifold *manifold, const mr_chart *c1, const mr_chart *c2, mr_float *p_out, const mr_float *p_in);
-mr_float mr_chart_inner_product(const mr_manifold *manifold, const mr_chart *chart, const mr_float *p, const mr_float *v1, const mr_float *v2);
-
-struct mr_chart {
+struct mr_chart_desc {
     mr_chart_bounds_fn bounds;
     mr_chart_metric_fn metric;
+
+    void *userdata;
+    mr_chart_dtor_fn dtor;
 };
 
-void mr_chart_init(mr_chart *chart, mr_chart_bounds_fn bounds, mr_chart_metric_fn metric);
+struct mr_chart {
+    const mr_manifold *manifold;
+
+    mr_chart_bounds_fn bounds;
+    mr_chart_metric_fn metric;
+
+    void *userdata;
+};
+
+mr_float mr_chart_euclidean_metric(const mr_chart *chart, const mr_float *p, size_t i, size_t j);
+void mr_chart_default_dtor(mr_chart_desc *chart);
+
+mr_float mr_inner_product(const mr_manifold *manifold, size_t chart_idx, const mr_float *p, const mr_float *v1, const mr_float *v2);
+
+typedef bool (*mr_transition_domain_fn)(const mr_transition *, const mr_float *);
+typedef int (*mr_transition_map_fn)(const mr_transition *, mr_float *, const mr_float *);
+
+typedef struct mr_transition_desc {
+    mr_transition_domain_fn domain;
+    mr_transition_map_fn fn;
+} mr_transition_desc;
+
+mr_transition_desc mr_transition_desc_create_self();
+mr_transition_desc mr_transition_desc_create_empty();
+
+struct mr_transition {
+    const mr_manifold *manifold;
+
+    const mr_chart *src;
+    const mr_chart *dst;
+
+    mr_transition_domain_fn domain;
+    mr_transition_map_fn fn;
+};
 
 struct mr_manifold {
     size_t dim;
 
     size_t nb_charts;
-    mr_chart *charts;
+    mr_chart_desc *charts;
 
-    mr_chart_transition_map_fn *transitions;
+    mr_transition_desc *transitions;
 };
 
-mr_manifold *mr_manifold_create(size_t dim, size_t nb_charts);
+mr_manifold *mr_manifold_create(size_t dim, size_t nb_charts, const mr_chart_desc *charts, const mr_transition_desc *transitions);
 void mr_manifold_destroy(mr_manifold *manifold);
 
-mr_chart *mr_manifold_get_chart(mr_manifold *manifold, size_t i);
-void mr_manifold_set_chart(mr_manifold *manifold, size_t i, const mr_chart *chart);
+mr_chart mr_manifold_get_chart(const mr_manifold *manifold, size_t chart_idx);
+bool mr_manifold_is_in_bounds(const mr_manifold *manifold, size_t chart_idx, const mr_float *p);
+mr_float mr_manifold_metric(const mr_manifold *manifold, size_t chart_idx, const mr_float *p, size_t i, size_t j);
 
-mr_chart_transition_map_fn mr_manifold_get_transition(mr_manifold *manifold, size_t i, size_t j);
-void mr_manifold_set_transition(mr_manifold *manifold, size_t i, size_t j, mr_chart_transition_map_fn map);
+int mr_manifold_transition(const mr_manifold *manifold, size_t i, size_t j, mr_float *p_out, const mr_float *p_in);
 
 #endif // _MR_MANIFOLD_H
