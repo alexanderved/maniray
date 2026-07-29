@@ -24,9 +24,7 @@ struct mr_mem_pool {
     size_t capacity;
 
     size_t nb_types;
-    size_t *block_sizes;
     size_t *offsets;
-    size_t full_size;
 
     char *data;
     mr_uint *valid;
@@ -160,20 +158,12 @@ mr_mem_pool *mr_mem_pool_create(size_t block_sizes[], size_t nb_types) {
     mr_mem_pool *pool = xmalloc(sizeof(mr_mem_pool));
 
     pool->capacity = 0;
-
     pool->nb_types = nb_types;
-    pool->block_sizes = xmalloc(pool->nb_types * sizeof(size_t));
-    memcpy(pool->block_sizes, block_sizes, pool->nb_types * sizeof(size_t));
 
-    pool->offsets = xmalloc(pool->nb_types * sizeof(size_t));
+    pool->offsets = xmalloc((pool->nb_types + 1) * sizeof(size_t));
     pool->offsets[0] = 0;
-    for (size_t i = 1; i < pool->nb_types; ++i) {
-        pool->offsets[i] = pool->block_sizes[i - 1] + pool->offsets[i - 1];
-    }
-
-    pool->full_size = 0;
-    for (size_t i = 0; i < pool->nb_types; ++i) {
-        pool->full_size += pool->block_sizes[i];
+    for (size_t i = 1; i <= pool->nb_types; ++i) {
+        pool->offsets[i] = block_sizes[i - 1] + pool->offsets[i - 1];
     }
 
     pool->data = NULL;
@@ -198,9 +188,7 @@ void mr_mem_pool_destroy(mr_mem_pool *pool) {
 
     free(pool->valid);
     free(pool->data);
-
     free(pool->offsets);
-    free(pool->block_sizes);
 
     free(pool);
 }
@@ -236,6 +224,14 @@ bool mr_mem_pool_is_block_accessible(mr_mem_pool *pool, mr_index idx) {
         && is_element_valid(pool, idx);
 }
 
+static size_t get_block_size(mr_mem_pool *pool, mr_index i) {
+    return pool->offsets[i + 1] - pool->offsets[i];
+}
+
+static size_t get_full_size(mr_mem_pool *pool) {
+    return pool->offsets[pool->nb_types];
+}
+
 static void change_element_validity(mr_mem_pool *pool, mr_index idx, bool value) {
     mr_uint *chunk = &pool->valid[idx / MR_INT_NB_BITS];
 
@@ -243,6 +239,16 @@ static void change_element_validity(mr_mem_pool *pool, mr_index idx, bool value)
         *chunk |= 1 << (idx % MR_INT_NB_BITS);
     } else {
         *chunk &= ~(1 << (idx % MR_INT_NB_BITS));
+    }
+}
+
+static void clear_elements(mr_mem_pool *pool, mr_index idx, size_t len) {
+    for (mr_index field = 0; (size_t)field < pool->nb_types; ++field) {
+        mr_index outer_idx = pool->offsets[field] * pool->capacity;
+        mr_index inner_idx = idx * get_block_size(pool, field);
+        char *ptr = pool->data + outer_idx + inner_idx;
+
+        memset(ptr, 0, len * get_block_size(pool, field));
     }
 }
 
@@ -268,7 +274,7 @@ static void init_mem_pool(mr_mem_pool *pool, size_t init_cap) {
     init_cap = closest_power_of_two(init_cap);
 
     pool->capacity = init_cap;
-    pool->data = xmalloc(pool->full_size * init_cap);
+    pool->data = xmalloc(get_full_size(pool) * init_cap);
 
     pool->valid = xmalloc(sizeof(mr_uint) * valid_arr_cap(init_cap));
     memset(pool->valid, 0, sizeof(mr_uint) * valid_arr_cap(init_cap));
@@ -279,12 +285,12 @@ static void realloc_mem_pool(mr_mem_pool *pool, size_t cap_mul) {
 
     size_t old_cap = pool->capacity;
     pool->capacity *= cap_mul;
-    pool->data = xrealloc(pool->data, pool->capacity * pool->full_size);
+    pool->data = xrealloc(pool->data, pool->capacity * get_full_size(pool));
 
     for (mr_index i = pool->nb_types - 1; i > 0; --i) {
         mr_index outer_idx_old = pool->offsets[i] * old_cap;
         mr_index outer_idx_new = pool->offsets[i] * pool->capacity;
-        size_t size = pool->block_sizes[i] * old_cap;
+        size_t size = get_block_size(pool, i) * old_cap;
         memmove(pool->data + outer_idx_new, pool->data + outer_idx_old, size);
     }
 
@@ -334,6 +340,7 @@ mr_index mr_mem_pool_alloc_many(mr_mem_pool *pool, size_t nb_elems) {
         realloc_mem_pool(pool, mul);
     }
 
+    clear_elements(pool, idx, nb_elems);
     for (size_t i = 0; i < nb_elems; ++i) {
         change_element_validity(pool, idx + i, true);
     }
@@ -351,18 +358,18 @@ void mr_mem_pool_remove(mr_mem_pool *pool, mr_index idx) {
 }
 
 void *mr_mem_pool_ptr(mr_mem_pool *pool, mr_index field, mr_index idx) {
-    if (!pool || !mr_mem_pool_is_block_accessible(pool, idx)) {
+    if (!pool || !mr_mem_pool_is_block_accessible(pool, idx) || (size_t)field >= pool->nb_types) {
         return NULL;
     }
 
     mr_index outer_idx = pool->offsets[field] * pool->capacity;
-    mr_index inner_idx = idx * pool->block_sizes[field];
+    mr_index inner_idx = idx * get_block_size(pool, field);
 
     return pool->data + outer_idx + inner_idx;
 }
 
 void *mr_mem_pool_array_ptr(mr_mem_pool *pool, mr_index field) {
-    if (!pool) {
+    if (!pool || (size_t)field >= pool->nb_types) {
         return NULL;
     }
 
