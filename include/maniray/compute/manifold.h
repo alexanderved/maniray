@@ -14,11 +14,13 @@ typedef struct mr_manifold mr_manifold;
 typedef struct mr_transition mr_transition;
 
 typedef bool (*mr_chart_bounds_fn)(const mr_chart *, const mr_float *);
+typedef void (*mr_chart_period_fn)(const mr_chart *, mr_float *, const mr_float *);
 typedef mr_float (*mr_chart_metric_fn)(const mr_chart *, const mr_float *, size_t, size_t);
 typedef void (*mr_chart_dtor_fn)(mr_chart_desc *);
 
 struct mr_chart_desc {
     mr_chart_bounds_fn bounds;
+    mr_chart_period_fn period;
     mr_chart_metric_fn metric;
 
     void *userdata;
@@ -29,6 +31,7 @@ struct mr_chart {
     const mr_manifold *manifold;
 
     mr_chart_bounds_fn bounds;
+    mr_chart_period_fn period;
     mr_chart_metric_fn metric;
 
     void *userdata;
@@ -72,8 +75,8 @@ struct mr_manifold {
 mr_manifold *mr_manifold_create(size_t dim, size_t nb_charts, const mr_chart_desc *charts, const mr_transition_desc *transitions);
 void mr_manifold_destroy(mr_manifold *manifold);
 
-mr_chart mr_manifold_get_chart(const mr_manifold *manifold, size_t chart_idx);
 bool mr_manifold_is_in_bounds(const mr_manifold *manifold, size_t chart_idx, const mr_float *p);
+void mr_manifold_periodic_wrap(const mr_manifold *manifold, size_t chart_idx, mr_float *wp, const mr_float *p);
 mr_float mr_manifold_metric(const mr_manifold *manifold, size_t chart_idx, const mr_float *p, size_t i, size_t j);
 
 int mr_manifold_transition(const mr_manifold *manifold, size_t i, size_t j, mr_float *p_out, const mr_float *p_in);

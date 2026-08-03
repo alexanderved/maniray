@@ -44,6 +44,26 @@ vec3 hsv2rgb(vec3 c) {
     return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
 
+#define M_PI 3.14159265359
+#define M_2PI 6.28318530718
+
+float atan2(float y, float x) {
+    return mod(atan(y, x), M_2PI);
+}
+
+float proj_radius(vec3 p, vec3 c) {
+    return length(p.xz - c.xz);
+}
+
+float circle_dist(vec3 p, vec3 c, float r) {
+    p = p - c;
+
+    float D = length(p.xz);
+    vec2 diff = vec2(D - r, p.y);
+    
+    return length(diff);
+}
+
 int convert_0(vec3 p_in, out vec3 p_out) {
     if (!(p_in.y > 0.25f || p_in.y < -0.25f || (length(p_in.xz + vec2(2.0, 0.0)) > 1.0f && length(p_in.xz - vec2(2.0, 0.0)) > 1.0f))) {
         return 0;
@@ -83,6 +103,47 @@ int convert_2(vec3 p_in, out vec3 p_out) {
     } else {
         p_out.x -= 2.0;
     }
+
+    return 1;
+}
+
+int convert_3(vec3 p_in, out vec3 p_out) {
+    if (!(circle_dist(p_in, vec3(-2.0, 0.0, 0.0), 1.0) < 0.75 || circle_dist(p_in, vec3(2.0, 0.0, 0.0), 1.0) < 0.75)) {
+        return 0;
+    }
+
+    float R = 1.0f;
+    vec3 mouth_circle1 = vec3(-2.0, 0.0, 0.0);
+    vec3 mouth_circle2 = vec3(2.0, 0.0, 0.0);
+
+    float r1 = circle_dist(p_in, mouth_circle1, R);
+    float r2 = circle_dist(p_in, mouth_circle2, R);
+
+    float r = 0.0;
+    vec3 mc = vec3(0.0);
+    float theta_offset = 0.0;
+    if (r1 < 0.75) {
+        r = r1;
+        mc = mouth_circle1;
+
+        if (p_in.y < 0.0) {
+            theta_offset = 2.0 * M_PI;
+        }
+    } else if (r2 < 0.75) {
+        r = r2;
+        mc = mouth_circle2;
+
+        theta_offset = 2.0 * M_PI;
+    } else {
+        return 0;
+    }
+
+    float theta = atan2(p_in[1] - mc[1], proj_radius(p_in, mc) - R) + theta_offset;
+    float phi = atan2(p_in[2] - mc[2], p_in[0] - mc[0]);
+
+    p_out[0] = r;
+    p_out[1] = theta / (8.0f * M_PI) - 0.25f;
+    p_out[2] = phi / (4.0f * M_PI) - 0.25f;
 
     return 1;
 }
@@ -139,16 +200,12 @@ vec4 draw_octree_slice(vec2 xy) {
     vec3 coords = vec3(xy, z);
 
     int enabled_charts = 0;
-    vec3 chart_coords[MAX_NB_CHARTS] = vec3[MAX_NB_CHARTS](
-        vec3(0.0),
-        vec3(0.0),
-        vec3(0.0),
-        vec3(0.0)
-    );
+    vec3 chart_coords[MAX_NB_CHARTS];
     
     enabled_charts |= convert_0(coords, chart_coords[0]);
     enabled_charts |= convert_1(coords, chart_coords[1]) << 1;
     enabled_charts |= convert_2(coords, chart_coords[2]) << 2;
+    enabled_charts |= convert_3(coords, chart_coords[3]) << 3;
 
     // return vec4(float(enabled_charts & 1), float((enabled_charts >> 1) & 1), float((enabled_charts >> 2) & 1), 1.0);
 

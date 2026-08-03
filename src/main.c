@@ -1,64 +1,123 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 
 #include "maniray/display/engine.h"
 #include "maniray/display/camera.h"
 #include "maniray/display/uniform_buffer.h"
 #include "maniray/display/storage_buffer.h"
 #include "maniray/utils/misc.h"
+#include "maniray/compute/math.h"
 #include "maniray/compute/octree.h"
 #include "maniray/compute/sparse_matrix.h"
+#include "maniray/compute/fvm_general.h"
 
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-
-static float l2_2d(float x, float y) {
-    return sqrtf(x * x + y * y);
+static mr_float proj_radius(const mr_float *p, const mr_float *c) {
+    return mr_norm2_2d(p[0] - c[0], p[2] - c[2]);
 }
 
-static float l2(float x, float y, float z) {
-    return sqrtf(x * x + y * y + z * z);
-}
+static mr_float dist_to_circle(const mr_float *p, const mr_float *c) {
+    mr_float proj = proj_radius(p, c) - 1.0;
+    mr_float n = p[1] - c[1];
 
-static float linf(float x, float y, float z) {
-    return MAX(MAX(fabsf(x), fabsf(y)), fabsf(z));
+    return mr_norm2_2d(proj, n);
 }
 
 static bool chart_0_bounds(const mr_chart *chart, const mr_float *p) {
     MR_UNUSED(chart);
 
-    return p[1] > 0.25f || p[1] < -0.25f || (l2_2d(p[0] + 2.0f, p[2]) > 1.0f && l2_2d(p[0] - 2.0f, p[2]) > 1.0f);
-}
-
-static bool chart_1_2_bounds(const mr_chart *chart, const mr_float *p) {
-    MR_UNUSED(chart);
-
-    return p[1] < 1.0f && p[1] > -1.0f && l2_2d(p[0], p[2]) < 1.0f;
+    return p[1] > 0.25f || p[1] < -0.25f || (mr_norm2_2d(p[0] + 2.0f, p[2]) > 1.0f && mr_norm2_2d(p[0] - 2.0f, p[2]) > 1.0f);
 }
 
 static bool transition_0_1_domain(const mr_transition *t, const mr_float *p) {
     MR_UNUSED(t);
 
-    return (p[1] < -0.25f && p[1] > -1.0f && l2_2d(p[0] + 2.0f, p[2]) < 1.0f)
-        || (p[1] > 0.25f && p[1] < 1.0f && l2_2d(p[0] - 2.0f, p[2]) < 1.0f);
+    return (p[1] < -0.25f && p[1] > -1.0f && mr_norm2_2d(p[0] + 2.0f, p[2]) < 1.0f)
+        || (p[1] > 0.25f && p[1] < 1.0f && mr_norm2_2d(p[0] - 2.0f, p[2]) < 1.0f);
 }
 
 static int transition_0_1(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
     MR_UNUSED(t);
 
-    if (!t->domain(t, p_in)) {
-        return MR_FAILURE;
-    }
-
     memcpy(p_out, p_in, t->manifold->dim * sizeof(mr_float));
-    if (p_in[0] > 0.0f) {
+    if (p_in[1] > 0.0f) {
         p_out[0] -= 2.0f;
     } else {
         p_out[0] += 2.0f;
     }
 
     return MR_SUCCESS;
+}
+
+static bool transition_0_2_domain(const mr_transition *t, const mr_float *p) {
+    MR_UNUSED(t);
+
+    return (p[1] < -0.25f && p[1] > -1.0f && mr_norm2_2d(p[0] - 2.0f, p[2]) < 1.0f)
+        || (p[1] > 0.25f && p[1] < 1.0f && mr_norm2_2d(p[0] + 2.0f, p[2]) < 1.0f);
+}
+
+static int transition_0_2(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
+    MR_UNUSED(t);
+
+    memcpy(p_out, p_in, t->manifold->dim * sizeof(mr_float));
+    if (p_in[1] > 0.0f) {
+        p_out[0] += 2.0f;
+    } else {
+        p_out[0] -= 2.0f;
+    }
+
+    return MR_SUCCESS;
+}
+
+static bool transition_0_3_domain(const mr_transition *t, const mr_float *p) {
+    MR_UNUSED(t);
+
+    mr_float mouth_circle1[3] = { -2.0f, 0.0f, 0.0f };
+    mr_float mouth_circle2[3] = { 2.0f, 0.0f, 0.0f };
+
+    return dist_to_circle(p, mouth_circle1) < 0.75 || dist_to_circle(p, mouth_circle2) < 0.75;
+}
+
+static int transition_0_3(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
+    MR_UNUSED(t);
+
+    mr_float mouth_circle1[3] = { -2.0f, 0.0f, 0.0f };
+    mr_float mouth_circle2[3] = { 2.0f, 0.0f, 0.0f };
+
+    mr_float r1 = dist_to_circle(p_in, mouth_circle1);
+    mr_float r2 = dist_to_circle(p_in, mouth_circle2);
+
+    mr_float r = 0.0f;
+    const mr_float *mc = NULL;
+    if (r1 < 0.75f) {
+        r = r1;
+        mc = mouth_circle1;
+    } else if (r2 < 0.75f) {
+        r = r2;
+        mc = mouth_circle2;
+    } else {
+        return MR_FAILURE;
+    }
+
+    mr_float theta = mr_atan2p(p_in[1] - mc[1], proj_radius(p_in, mc) - 1.0f);
+    mr_float phi = mr_atan2p(p_in[2] - mc[2], p_in[0] - mc[0]);
+
+    if ((r1 < 0.75f && theta > MR_PI) || r2 < 0.75f) {
+        theta += 2.0f * MR_PI;
+    }
+
+    p_out[0] = r;
+    p_out[1] = theta / (8.0f * MR_PI) - 0.25f;
+    p_out[2] = phi / (4.0f * MR_PI) - 0.25f;
+
+    return MR_SUCCESS;
+}
+
+static bool chart_1_2_bounds(const mr_chart *chart, const mr_float *p) {
+    MR_UNUSED(chart);
+
+    return p[1] < 1.0f && p[1] > -1.0f && mr_norm2_2d(p[0], p[2]) < 1.0f;
 }
 
 static bool transition_1_0_domain(const mr_transition *t, const mr_float *p) {
@@ -70,12 +129,8 @@ static bool transition_1_0_domain(const mr_transition *t, const mr_float *p) {
 static int transition_1_0(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
     MR_UNUSED(t);
 
-    if (!t->domain(t, p_in)) {
-        return MR_FAILURE;
-    }
-
     memcpy(p_out, p_in, t->manifold->dim * sizeof(mr_float));
-    if (p_in[0] > 0.0f) {
+    if (p_in[1] > 0.0f) {
         p_out[0] += 2.0f;
     } else {
         p_out[0] -= 2.0f;
@@ -84,26 +139,24 @@ static int transition_1_0(const mr_transition *t, mr_float *p_out, const mr_floa
     return MR_SUCCESS;
 }
 
-static bool transition_0_2_domain(const mr_transition *t, const mr_float *p) {
+static bool transition_1_3_domain(const mr_transition *t, const mr_float *p) {
     MR_UNUSED(t);
 
-    return (p[1] < -0.25f && p[1] > -1.0f && l2_2d(p[0] - 2.0f, p[2]) < 1.0f)
-        || (p[1] > 0.25f && p[1] < 1.0f && l2_2d(p[0] + 2.0f, p[2]) < 1.0f);
+    return dist_to_circle(p, (mr_float[3]) { 0.0f, 0.0f, 0.0f }) < 0.75;
 }
 
-static int transition_0_2(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
+static int transition_1_3(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
     MR_UNUSED(t);
 
-    if (!t->domain(t, p_in)) {
-        return MR_FAILURE;
-    }
+    mr_float mouth_circle[3] = { 0.0f, 0.0f, 0.0f };
 
-    memcpy(p_out, p_in, t->manifold->dim * sizeof(mr_float));
-    if (p_in[0] > 0.0f) {
-        p_out[0] += 2.0f;
-    } else {
-        p_out[0] -= 2.0f;
-    }
+    mr_float r = dist_to_circle(p_in, mouth_circle);
+    mr_float theta = mr_atan2p(p_in[1] - mouth_circle[1], proj_radius(p_in, mouth_circle) - 1.0f) + 2.0f * MR_PI;
+    mr_float phi = mr_atan2p(p_in[2] - mouth_circle[2], p_in[0] - mouth_circle[0]);
+
+    p_out[0] = r;
+    p_out[1] = theta / (8.0f * MR_PI) - 0.25f;
+    p_out[2] = phi / (4.0f * MR_PI) - 0.25f;
 
     return MR_SUCCESS;
 }
@@ -117,12 +170,8 @@ static bool transition_2_0_domain(const mr_transition *t, const mr_float *p) {
 static int transition_2_0(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
     MR_UNUSED(t);
 
-    if (!t->domain(t, p_in)) {
-        return MR_FAILURE;
-    }
-
     memcpy(p_out, p_in, t->manifold->dim * sizeof(mr_float));
-    if (p_in[0] > 0.0f) {
+    if (p_in[1] > 0.0f) {
         p_out[0] -= 2.0f;
     } else {
         p_out[0] += 2.0f;
@@ -131,64 +180,202 @@ static int transition_2_0(const mr_transition *t, mr_float *p_out, const mr_floa
     return MR_SUCCESS;
 }
 
+static bool transition_2_3_domain(const mr_transition *t, const mr_float *p) {
+    MR_UNUSED(t);
+
+    return dist_to_circle(p, (mr_float[3]) { 0.0f, 0.0f, 0.0f }) < 0.75;
+}
+
+static int transition_2_3(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
+    MR_UNUSED(t);
+
+    mr_float mouth_circle[3] = { 0.0f, 0.0f, 0.0f };
+
+    mr_float r = dist_to_circle(p_in, mouth_circle);
+    mr_float theta = mr_atan2p(p_in[1] - mouth_circle[1], proj_radius(p_in, mouth_circle) - 1.0f);
+    mr_float phi = mr_atan2p(p_in[2] - mouth_circle[2], p_in[0] - mouth_circle[0]);
+
+    p_out[0] = r;
+    p_out[1] = theta / (8.0f * MR_PI) - 0.25f;
+    p_out[2] = phi / (4.0f * MR_PI) - 0.25f;
+
+    return MR_SUCCESS;
+}
+
+static bool chart_3_bounds(const mr_chart *chart, const mr_float *p) {
+    MR_UNUSED(chart);
+
+    return p[0] > 0.0 && p[0] < 0.75;
+}
+
+static void chart_3_period(const mr_chart *chart, mr_float *wp, const mr_float *p) {
+    MR_UNUSED(chart);
+
+    wp[0] = p[0];
+    wp[1] = mr_wrap(p[1], -0.25, 0.25);
+    wp[2] = mr_wrap(p[2], -0.25, 0.25);
+}
+
+static bool transition_3_0_domain(const mr_transition *t, const mr_float *p) {
+    MR_UNUSED(t);
+
+    mr_float theta = (p[1] + 0.25f) * 8.0f * MR_PI;
+    return theta != MR_PI && theta != 3.0f * MR_PI;
+}
+
+static int transition_3_0(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
+    MR_UNUSED(t);
+
+    mr_float r = p_in[0];
+    mr_float theta = (p_in[1] + 0.25f) * 8.0f * MR_PI;
+    mr_float phi = (p_in[2] + 0.25f) * 4.0f * MR_PI;
+
+    mr_float x_offset = 0.0f;
+    if ((theta >= 0.0f && theta < 1.0f * MR_PI) || (theta > 3.0f * MR_PI && theta <= 4.0f * MR_PI)) {
+        x_offset = -2.0f;
+    } else if (theta > 1.0f * MR_PI && theta < 3.0f * MR_PI) {
+        x_offset = 2.0f;
+    } else {
+        return MR_FAILURE;
+    }
+
+    p_out[0] = (1.0f + r * cosf(theta)) * cosf(phi) + x_offset;
+    p_out[1] = r * sinf(theta);
+    p_out[2] = (1.0f + r * cosf(theta)) * sinf(phi);
+
+    return MR_SUCCESS;
+}
+
+static bool transition_3_1_domain(const mr_transition *t, const mr_float *p) {
+    MR_UNUSED(t);
+
+    mr_float theta = (p[1] + 0.25f) * 8.0f * MR_PI;
+    return theta > 2.5f * MR_PI && theta < 3.5f * MR_PI;
+}
+
+static int transition_3_1(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
+    MR_UNUSED(t);
+
+    mr_float r = p_in[0];
+    mr_float theta = (p_in[1] + 0.25f) * 8.0f * MR_PI;
+    mr_float phi = (p_in[2] + 0.25f) * 4.0f * MR_PI;
+
+    p_out[0] = (1.0f + r * cosf(theta)) * cosf(phi);
+    p_out[1] = r * sinf(theta);
+    p_out[2] = (1.0f + r * cosf(theta)) * sinf(phi);
+
+    return MR_SUCCESS;
+}
+
+static bool transition_3_2_domain(const mr_transition *t, const mr_float *p) {
+    MR_UNUSED(t);
+
+    mr_float theta = (p[1] + 0.25f) * 8.0f * MR_PI;
+    return theta > 0.5f * MR_PI && theta < 1.5f * MR_PI;
+}
+
+static int transition_3_2(const mr_transition *t, mr_float *p_out, const mr_float *p_in) {
+    MR_UNUSED(t);
+
+    mr_float r = p_in[0];
+    mr_float theta = (p_in[1] + 0.25f) * 8.0f * MR_PI;
+    mr_float phi = (p_in[2] + 0.25f) * 4.0f * MR_PI;
+
+    p_out[0] = (1.0f + r * cosf(theta)) * cosf(phi);
+    p_out[1] = r * sinf(theta);
+    p_out[2] = (1.0f + r * cosf(theta)) * sinf(phi);
+
+    return MR_SUCCESS;
+}
+
 mr_manifold *setup_manifold() {
-#define NB_CHARTS 3
+#define NB_CHARTS 4
     mr_chart_desc charts[NB_CHARTS] = {
         { .bounds = chart_0_bounds },
         { .bounds = chart_1_2_bounds },
         { .bounds = chart_1_2_bounds },
+        { .bounds = chart_3_bounds, .period = chart_3_period }, // TODO: Add metric
     };
 
     mr_transition_desc transitions[NB_CHARTS * NB_CHARTS] = {
-        mr_transition_desc_create_self(), { transition_0_1_domain, transition_0_1 }, { transition_0_2_domain, transition_0_2 },
-        { transition_1_0_domain, transition_1_0 }, mr_transition_desc_create_self(), mr_transition_desc_create_empty(),
-        { transition_2_0_domain, transition_2_0 }, mr_transition_desc_create_empty(), mr_transition_desc_create_self(),
+        mr_transition_desc_create_self(),
+        { transition_0_1_domain, transition_0_1 },
+        { transition_0_2_domain, transition_0_2 },
+        { transition_0_3_domain, transition_0_3 },
+
+        { transition_1_0_domain, transition_1_0 },
+        mr_transition_desc_create_self(),
+        mr_transition_desc_create_empty(),
+        { transition_1_3_domain, transition_1_3 },
+
+        { transition_2_0_domain, transition_2_0 },
+        mr_transition_desc_create_empty(),
+        mr_transition_desc_create_self(),
+        { transition_2_3_domain, transition_2_3 },
+
+        { transition_3_0_domain, transition_3_0 },
+        { transition_3_1_domain, transition_3_1 },
+        { transition_3_2_domain, transition_3_2 },
+        mr_transition_desc_create_self(),
     };
 
     return mr_manifold_create(3, NB_CHARTS, charts, transitions);
 }
 
-bool adaptive_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
+static bool adaptive_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
     MR_UNUSED(userdata);
 
     mr_octree_node *node = mr_ocforest_get_node(forest, idx);
     mr_float p[3] = { node->x, node->y, node->z };
 
-    return p[1] < 1.25f && p[1] > -1.25f && (l2_2d(p[0] + 2.0f, p[2]) < 1.5f || l2_2d(p[0] - 2.0f, p[2]) < 1.5f);
+    return p[1] < 1.25f && p[1] > -1.25f && (mr_norm2_2d(p[0] + 2.0f, p[2]) < 1.8f || mr_norm2_2d(p[0] - 2.0f, p[2]) < 1.8f);
 }
 
-bool is_node_in_bounds(mr_ocforest *forest, size_t chart_idx, mr_octree_node *node) {
-    mr_float center[3] = { node->x, node->y, node->z };
+static int setup_boundary(mr_ocforest *forest, mr_int idx, void *userdata) {
+    MR_UNUSED(userdata);
 
-    if (!mr_manifold_is_in_bounds(forest->manifold, chart_idx, center)) {
-        return false;
+    mr_discretization_data *discr_data = mr_ocforest_get_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
+    if (discr_data->type != MR_CELL_TYPE_NONE) {
+        return MR_SUCCESS;
     }
 
-    for (size_t i = 0; i < 8; ++i) {
-        mr_float hdim = node->dim / 2.0f;
-        mr_float x = center[0] + hdim * (i & 1 ? 1.0f : -1.0f);
-        mr_float y = center[1] + hdim * ((i >> 1) & 1 ? 1.0f : -1.0f);
-        mr_float z = center[2] + hdim * ((i >> 2) & 1 ? 1.0f : -1.0f);
+    for (mr_octree_direction dir = MR_OCTREE_DIRECTION_MI_X; dir <= MR_OCTREE_DIRECTION_PL_Z; ++dir) {
+        mr_int nidx = mr_octree_find_face_neighbor(forest, idx, dir);
+        mr_octree_node *n = mr_ocforest_get_node(forest, nidx);
+        if (!n /* || !(n->flags & MR_OCTREE_NODE_FLAG_ACTIVE) */) {
+            discr_data->type = MR_CELL_TYPE_BOUNDARY;
 
-        mr_float p[3] = { x, y, z };
-        if (!mr_manifold_is_in_bounds(forest->manifold, chart_idx, p)) {
-            return false;
+            break;
         }
     }
 
-    return true;
+    return MR_SUCCESS;
 }
 
-bool chart_activate(mr_ocforest *forest, mr_int idx, void *userdata) {
+static int setup_boundary_chart3(mr_ocforest *forest, mr_int idx, void *userdata) {
     MR_UNUSED(userdata);
 
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
-    return is_node_in_bounds(forest, node->chart_idx, node);
+    mr_discretization_data *discr_data = mr_ocforest_get_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
+    if (discr_data->type != MR_CELL_TYPE_NONE) {
+        return MR_SUCCESS;
+    }
+
+    mr_octree_direction dir = MR_OCTREE_DIRECTION_MI_X;
+
+    mr_int nidx = mr_octree_find_face_neighbor(forest, idx, dir);
+    mr_octree_node *n = mr_ocforest_get_node(forest, nidx);
+
+    if (!n) {
+        discr_data->type = MR_CELL_TYPE_BOUNDARY;
+    }
+
+    return MR_SUCCESS;
 }
 
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
-    mr_octree_root_desc descs[] = {
-        (mr_octree_root_desc) {
+#define NB_ROOTS 4
+    mr_octree_root_desc descs[NB_ROOTS] = {
+        {
             .flags = 0,
             .chart_idx = 0,
             .x = 0.0f,
@@ -196,7 +383,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
             .z = 0.0f,
             .dim = 8.0f,
         },
-        (mr_octree_root_desc) {
+        {
             .flags = 0,
             .chart_idx = 1,
             .x = 0.0f,
@@ -204,7 +391,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
             .z = 0.0f,
             .dim = 2.0f,
         },
-        (mr_octree_root_desc) {
+        {
             .flags = 0,
             .chart_idx = 2,
             .x = 0.0f,
@@ -212,8 +399,16 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
             .z = 0.0f,
             .dim = 2.0f,
         },
+        {
+            .flags = MR_OCTREE_FLAG_PERIODIC_Y | MR_OCTREE_FLAG_PERIODIC_Z,
+            .chart_idx = 3,
+            .x = 0.375f,
+            .y = 0.0f,
+            .z = 0.0f,
+            .dim = 0.5f,
+        },
     };
-    mr_ocforest *forest = mr_ocforest_create(manifold, descs, 3, NULL, 0);
+    mr_ocforest *forest = mr_ocforest_create(manifold, descs, NB_ROOTS, (size_t[1]) { sizeof(mr_discretization_data) }, 1);
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -223,6 +418,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         mr_octree_refine_all(forest, 0);
         mr_octree_refine_all(forest, 1);
         mr_octree_refine_all(forest, 2);
+        mr_octree_refine_all(forest, 3);
     }
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_cond_cb(adaptive_refine, NULL), true);
     mr_octree_balance(forest, 0);
@@ -232,11 +428,22 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
                            (end.tv_nsec - start.tv_nsec) / 1000;
 
-    printf("Elapsed time: %lld microseconds\n", elapsed_us);
+    printf("Refine + Balance: %.2f ms\n", (double)elapsed_us / 1000.0);
 
-    mr_octree_activate(forest, 0, mr_make_octree_cond_cb(chart_activate, NULL));
-    mr_octree_activate(forest, 1, mr_make_octree_cond_cb(chart_activate, NULL));
-    mr_octree_activate(forest, 2, mr_make_octree_cond_cb(chart_activate, NULL));
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    mr_fvm_fit_grids_to_charts(forest);
+    mr_octree_leaves_apply(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_apply_cb(setup_boundary, NULL), false);
+    mr_octree_leaves_apply(forest, 3, mr_octree_cond_cb_null(), mr_make_octree_apply_cb(setup_boundary_chart3, NULL), false);
+    mr_fvm_connect_overset_grids(forest);
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
+                 (end.tv_nsec - start.tv_nsec) / 1000;
+
+    printf("Combine Grids: %.2f ms\n", (double)elapsed_us / 1000.0);
+
 
     printf("Ocforest size: %lu\n", mr_ocforest_size(forest));
 
@@ -263,7 +470,7 @@ void update_func(mr_engine *engine, void *userdata) {
 
     mr_camera_proccess_movement(camera, window);
 
-    printf("FPS: %f\n", 1.0 / mr_window_get_delta_time(window));
+    // printf("FPS: %f\n", 1.0 / mr_window_get_delta_time(window));
 }
 
 int run_display() {

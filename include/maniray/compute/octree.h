@@ -8,7 +8,7 @@
 #define MR_OCTREE_NB_CHILDREN 8
 #define MR_OCTREE_MAX_LEVEL 6
 
-#if MR_OCTREE_MAX_LEVEL > 10
+#if MR_OCTREE_MAX_LEVEL >= 10
 #line 8
 #error "The height of the octree is too large"
 #endif
@@ -24,13 +24,17 @@
 #define MR_OCTREE_NODE_FIELD 0
 
 typedef enum mr_octree_direction {
-    MR_OCTREE_DIRECTION_MI_X,
-    MR_OCTREE_DIRECTION_PL_X,
-    MR_OCTREE_DIRECTION_MI_Y,
-    MR_OCTREE_DIRECTION_PL_Y,
-    MR_OCTREE_DIRECTION_MI_Z,
-    MR_OCTREE_DIRECTION_PL_Z,
+    MR_OCTREE_DIRECTION_MI_X = 0,
+    MR_OCTREE_DIRECTION_PL_X = 1,
+    MR_OCTREE_DIRECTION_MI_Y = 2,
+    MR_OCTREE_DIRECTION_PL_Y = 3,
+    MR_OCTREE_DIRECTION_MI_Z = 4,
+    MR_OCTREE_DIRECTION_PL_Z = 5,
 } mr_octree_direction;
+
+static inline mr_octree_direction mr_octree_direction_reflect(mr_octree_direction dir) {
+    return dir % 2 == 0 ? dir + 1 : dir - 1;
+}
 
 typedef struct mr_octree_node {
     mr_bitfield flags;
@@ -111,8 +115,8 @@ size_t mr_ocforest_size(mr_ocforest *forest);
 mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx);
 mr_octree_node *mr_ocforest_get_node_array(mr_ocforest *forest);
 
-mr_octree_node *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field);
-mr_octree_node *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field);
+void *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field);
+void *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field);
 
 int mr_octree_leaves_apply(
     mr_ocforest *forest,
@@ -122,6 +126,7 @@ int mr_octree_leaves_apply(
     bool recursive
 );
 
+void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]);
 mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]);
 mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_octree_direction dir);
 
