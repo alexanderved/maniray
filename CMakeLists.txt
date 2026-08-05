@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(maniray)
+project(ManiRay)
 
 if(POLICY CMP0072)
     cmake_policy(SET CMP0072 NEW)
@@ -13,6 +13,4 @@ set(LIBS m glfw OpenGL::GL GLAD)
 
 add_subdirectory(external)
 add_subdirectory(src)
-
-target_include_directories(maniray PRIVATE include)
-set_property(TARGET maniray PROPERTY C_STANDARD 11)
+add_subdirectory(examples)

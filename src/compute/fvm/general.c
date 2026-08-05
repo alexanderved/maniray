@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include "maniray/compute/fvm_general.h"
+#include "maniray/compute/fvm/general.h"
 #include "maniray/utils/misc.h"
 
 static bool is_node_in_bounds(mr_ocforest *forest, size_t chart_idx, mr_octree_node *node) {
@@ -104,7 +104,7 @@ static int disable_nodes_near_boundaries(mr_ocforest *forest, mr_int idx, void *
 }
 
 static bool is_valid_interior_node(mr_ocforest *forest, mr_int idx) {
-    for (mr_octree_direction dir = MR_OCTREE_DIRECTION_MI_X; dir <= MR_OCTREE_DIRECTION_PL_Z; ++dir) {
+    for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
         mr_int nidx = mr_octree_find_face_neighbor(forest, idx, dir);
         mr_octree_node *n = mr_ocforest_get_node(forest, nidx);
         if (!n) {

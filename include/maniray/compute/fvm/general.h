@@ -18,7 +18,7 @@ typedef struct mr_discretization_data {
 
     union {
         mr_int grid_connection; // NONE
-        mr_int donor_node_idx;  // INTERPOLATION
+        mr_int donor_root_idx;  // INTERPOLATION
     };
 } mr_discretization_data;
 

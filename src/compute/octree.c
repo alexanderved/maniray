@@ -186,7 +186,7 @@ void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float 
     }
 }
 
-mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]) {
+mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, const mr_float p[3]) {
     mr_int idx = forest->roots[octree_idx].node_idx;
     mr_octree_node *node = mr_ocforest_get_node(forest, idx);
 
@@ -213,13 +213,13 @@ mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, mr_float
 
 static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdata);
 
-static mr_int mr_octree_find_face_neighbor_ext(mr_ocforest *forest, mr_int idx, mr_octree_direction dir, bool do_refine, mr_uint max_level) {
+static mr_int mr_octree_find_face_neighbor_ext(mr_ocforest *forest, mr_int idx, mr_direction dir, bool do_refine, mr_uint max_level) {
     if (!forest || idx == MR_INVALID_INDEX) {
         return MR_INVALID_INDEX;
     }
 
-    mr_int dir_shift = dir / 2;
-    mr_int dir_state = dir % 2;
+    mr_int dir_shift = mr_direction_get_axis(dir);
+    mr_int dir_state = mr_direction_get_sign(dir);
 
     mr_octree_node *node = NULL;
     mr_octree_node *parent = NULL;
@@ -234,9 +234,9 @@ static mr_int mr_octree_find_face_neighbor_ext(mr_ocforest *forest, mr_int idx, 
         parent = mr_ocforest_get_node(forest, node->parent);
         if (!parent) {
             mr_octree_root *root = &forest->roots[node->root];
-            if (((root->flags & MR_OCTREE_FLAG_PERIODIC_X) && (dir == MR_OCTREE_DIRECTION_MI_X || dir == MR_OCTREE_DIRECTION_PL_X))
-                || ((root->flags & MR_OCTREE_FLAG_PERIODIC_Y) && (dir == MR_OCTREE_DIRECTION_MI_Y || dir == MR_OCTREE_DIRECTION_PL_Y))
-                || ((root->flags & MR_OCTREE_FLAG_PERIODIC_Z) && (dir == MR_OCTREE_DIRECTION_MI_Z || dir == MR_OCTREE_DIRECTION_PL_Z)))
+            if (((root->flags & MR_OCTREE_FLAG_PERIODIC_X) && mr_direction_get_axis(dir) == MR_AXIS_X)
+                || ((root->flags & MR_OCTREE_FLAG_PERIODIC_Y) && mr_direction_get_axis(dir) == MR_AXIS_Y)
+                || ((root->flags & MR_OCTREE_FLAG_PERIODIC_Z) && mr_direction_get_axis(dir) == MR_AXIS_Z))
             {
                 break;
             }
@@ -266,7 +266,7 @@ static mr_int mr_octree_find_face_neighbor_ext(mr_ocforest *forest, mr_int idx, 
     return curr_idx;
 }
 
-mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_octree_direction dir) {
+mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir) {
     return mr_octree_find_face_neighbor_ext(forest, idx, dir, false, 0);
 }
 
@@ -364,7 +364,7 @@ static int balance_level(mr_ocforest *forest, mr_int node_idx, void *userdata) {
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
     if (node->flags & MR_OCTREE_NODE_FLAG_LEAF && node->level == level) {
         mr_uint node_level = node->level;
-        for (mr_octree_direction dir = MR_OCTREE_DIRECTION_MI_X; dir <= MR_OCTREE_DIRECTION_PL_Z; ++dir) {
+        for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
             mr_octree_find_face_neighbor_ext(forest, node_idx, dir, true, node_level - 1);
         }
     }

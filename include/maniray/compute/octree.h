@@ -4,6 +4,7 @@
 #include "maniray/utils/types.h"
 #include "maniray/utils/mem_pool.h"
 #include "maniray/compute/manifold.h"
+#include "maniray/compute/navigation.h"
 
 #define MR_OCTREE_NB_CHILDREN 8
 #define MR_OCTREE_MAX_LEVEL 6
@@ -22,19 +23,6 @@
 
 #define MR_OCTREE_NODE_NB_MAIN_FIELDS 1
 #define MR_OCTREE_NODE_FIELD 0
-
-typedef enum mr_octree_direction {
-    MR_OCTREE_DIRECTION_MI_X = 0,
-    MR_OCTREE_DIRECTION_PL_X = 1,
-    MR_OCTREE_DIRECTION_MI_Y = 2,
-    MR_OCTREE_DIRECTION_PL_Y = 3,
-    MR_OCTREE_DIRECTION_MI_Z = 4,
-    MR_OCTREE_DIRECTION_PL_Z = 5,
-} mr_octree_direction;
-
-static inline mr_octree_direction mr_octree_direction_reflect(mr_octree_direction dir) {
-    return dir % 2 == 0 ? dir + 1 : dir - 1;
-}
 
 typedef struct mr_octree_node {
     mr_bitfield flags;
@@ -127,8 +115,8 @@ int mr_octree_leaves_apply(
 );
 
 void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]);
-mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]);
-mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_octree_direction dir);
+mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, const mr_float p[3]);
+mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir);
 
 void mr_octree_activate(mr_ocforest *forest, mr_index octree_idx, mr_octree_cond_cb cond);
 void mr_octree_activate_all(mr_ocforest *forest, mr_index octree_idx);
