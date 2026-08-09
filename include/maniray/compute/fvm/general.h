@@ -22,7 +22,11 @@ typedef struct mr_discretization_data {
     };
 } mr_discretization_data;
 
-// TODO: Add refinement on chart boundaries
+/*
+ * TODO:
+ * 1. Add refinement on chart boundaries
+ * 2. Add refinement for interface interpolation (might need to implement FLAG_REFINE and refine_flaged function)
+*/
 
 void mr_fvm_fit_grids_to_charts(mr_ocforest *forest);
 void mr_fvm_connect_overset_grids(mr_ocforest *forest);

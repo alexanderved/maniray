@@ -43,7 +43,7 @@ static int activate_in_bounds(mr_ocforest *forest, mr_int idx, void *userdata) {
 
 void mr_fvm_fit_grids_to_charts(mr_ocforest *forest) {
     for (mr_index octree_idx = 0; (size_t)octree_idx < forest->nb_roots; ++octree_idx) {
-        mr_octree_leaves_apply(forest, octree_idx, mr_octree_cond_cb_null(), mr_make_octree_apply_cb(activate_in_bounds, NULL), false);
+        mr_octree_leaves_apply(forest, octree_idx, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(activate_in_bounds, NULL), false);
     }
 }
 
@@ -182,7 +182,7 @@ static int setup_interpolation(mr_ocforest *forest, mr_int idx, void *userdata) 
 
 void mr_fvm_connect_overset_grids(mr_ocforest *forest) {
     for (mr_index octree_idx = 0; (size_t)octree_idx < forest->nb_roots; ++octree_idx) {
-        mr_octree_leaves_apply(forest, octree_idx, mr_octree_cond_cb_null(), mr_make_octree_apply_cb(setup_initial_conds, NULL), false);
+        mr_octree_leaves_apply(forest, octree_idx, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(setup_initial_conds, NULL), false);
     }
 
     for (mr_index octree_idx = 0; (size_t)octree_idx < forest->nb_roots; ++octree_idx) {
@@ -190,7 +190,7 @@ void mr_fvm_connect_overset_grids(mr_ocforest *forest) {
             forest,
             octree_idx,
             mr_octree_cond_cb_null(),
-            mr_make_octree_apply_cb(disable_nodes_near_boundaries, NULL),
+            mr_octree_apply_cb_create(disable_nodes_near_boundaries, NULL),
             false
         );
     }
@@ -204,7 +204,7 @@ void mr_fvm_connect_overset_grids(mr_ocforest *forest) {
                 forest,
                 octree_idx,
                 mr_octree_cond_cb_null(),
-                mr_make_octree_apply_cb(setup_interpolation, &nb_updates),
+                mr_octree_apply_cb_create(setup_interpolation, &nb_updates),
                 false
             );
         }

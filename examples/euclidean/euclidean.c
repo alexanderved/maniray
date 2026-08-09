@@ -65,7 +65,13 @@ static bool point_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
 static bool area_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
     mr_octree_node *node = mr_ocforest_get_node(forest, idx);
 
-    return node->x >= 0.0 && node->y >= 0.0; // && node->z >= 0.0;
+    return node->y <= -1.0f; // && node->z >= 0.0;
+}
+
+static bool area_refine2(mr_ocforest *forest, mr_int idx, void *userdata) {
+    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+
+    return node->y <= -1.0f; // && node->z >= 0.0;
 }
 
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
@@ -86,31 +92,40 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     clock_gettime(CLOCK_MONOTONIC, &start);
 
 
-    for (size_t i = 0; i < 2; ++i) {
+    for (size_t i = 0; i < 1; ++i) {
         mr_octree_refine_all(forest, 0);
     }
 
     mr_float p[3] = { 0.5f, 0.5f, 0.5f };
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_cond_cb(point_refine, p), false);
-    // mr_octree_balance(forest, 0);
-
-
-    // mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_cond_cb(area_refine, NULL), false);
-
+    // mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, p), true);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
+    mr_octree_balance(forest, 0);
 
     mr_int point_node_idx = mr_octree_locate_point(forest, 0, p);
-    printf("Point Node Index: %d\n", point_node_idx);
+    mr_octree_node *point_node = mr_ocforest_get_node(forest, point_node_idx);
+    printf("Point Node %d: %f   (%f, %f, %f)\n",
+        point_node_idx,
+        point_node->dim,
+        point_node->x,
+        point_node->y,
+        point_node->z
+    );
 
-    /* mr_interpolation_stencil_type type = MR_STENCIL_TYPE_CENTER;
-    mr_direction dirs[3] = { 0 };
-    if (find_q_stencil(forest, point_node_idx, &type, dirs) == MR_SUCCESS) {
-        printf("Stencil type: %d\n", type);
-        for (int i = 0; i < (int)type; ++i) {
-            printf("Direction %d: %d\n", i, dirs[i]);
-        }
-    } else {
-        printf("No stencil\n");
-    } */
+    mr_direction vertex[] = { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y, MR_DIRECTION_PL_Z };
+    mr_int neighbor_node_idx = mr_octree_find_vertex_neighbor(forest, point_node_idx, vertex);
+    mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_node_idx);
+    if (neighbor_node) {
+        printf("Neighbor Node %d: %f   (%f, %f, %f)\n",
+            neighbor_node_idx,
+            neighbor_node->dim,
+            neighbor_node->x,
+            neighbor_node->y,
+            neighbor_node->z
+        );
+    }
+
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
@@ -122,7 +137,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     mr_fvm_fit_grids_to_charts(forest);
-    mr_octree_leaves_apply(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_apply_cb(setup_boundary, NULL), false);
+    mr_octree_leaves_apply(forest, 0, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(setup_boundary, NULL), false);
     mr_fvm_connect_overset_grids(forest);
 
     clock_gettime(CLOCK_MONOTONIC, &end);

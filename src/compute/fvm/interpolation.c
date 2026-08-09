@@ -41,12 +41,8 @@ static mr_int get_next_node_index(mr_ocforest *forest, mr_int first_idx, mr_int 
     return mr_octree_find_face_neighbor(forest, prev_idx, dir);
 }
 
-// TODO: Add coefficent param, move to header, rename
-typedef void (*stencil_apply)(mr_ocforest *forest, mr_int node_idx, mr_int local_idx[3], void *userdata);
-
-static int q_stencil_apply(mr_ocforest *forest, mr_int node_idx, mr_int first_local_idx[3], stencil_apply fn, void *userdata) {
+static int q_stencil_apply(mr_ocforest *forest, mr_int node_idx, mr_int first_local_idx[3], mr_fvm_interpolation_cb cb) {
     mr_bitfield visited_nodes = 0;
-    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
 
     mr_int x_node_idx = MR_INVALID_INDEX;
     mr_int y_node_idx = MR_INVALID_INDEX;
@@ -74,7 +70,7 @@ static int q_stencil_apply(mr_ocforest *forest, mr_int node_idx, mr_int first_lo
                     return MR_FAILURE;
                 }
 
-                fn(forest, z_node_idx, local_idx, userdata);
+                cb.fn(forest, z_node_idx, local_idx, 0.0f, cb.userdata);
                 visited_nodes |= 1 << flatten_idx(first_local_idx, local_idx);
             }
         }
@@ -88,8 +84,9 @@ typedef struct stencil_available_userdata {
     bool is_available;
 } stencil_available_userdata;
 
-static void check_q_stencil_available(mr_ocforest *forest, mr_int node_idx, mr_int local_idx[3], void *userdata) {
+static int check_q_stencil_available(mr_ocforest *forest, mr_int node_idx, mr_int local_idx[3], mr_float coef, void *userdata) {
     MR_UNUSED(local_idx);
+    MR_UNUSED(coef);
 
     stencil_available_userdata *data = userdata;
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
@@ -97,11 +94,13 @@ static void check_q_stencil_available(mr_ocforest *forest, mr_int node_idx, mr_i
     if (!(node->flags & MR_OCTREE_NODE_FLAG_LEAF) || data->host_node->level != node->level) {
         data->is_available = false;
     }
+
+    return MR_SUCCESS;
 }
 
 static bool is_center_q_stencil_available(mr_ocforest *forest, mr_int node_idx, mr_octree_node *node) {
     stencil_available_userdata data = { node, true };
-    q_stencil_apply(forest, node_idx, (mr_int[]) { -1, -1, -1 }, check_q_stencil_available, &data);
+    q_stencil_apply(forest, node_idx, (mr_int[]) { -1, -1, -1 }, mr_fvm_interpolation_cb_create(check_q_stencil_available, &data));
 
     return data.is_available;
 }
@@ -112,7 +111,7 @@ static int find_available_face_q_stencil(mr_ocforest *forest, mr_int node_idx, m
         local_idx[mr_direction_get_axis(dir)] += mr_direction_get_sign_mul(dir);
 
         stencil_available_userdata data = { node, true };
-        q_stencil_apply(forest, node_idx, local_idx, check_q_stencil_available, &data);
+        q_stencil_apply(forest, node_idx, local_idx, mr_fvm_interpolation_cb_create(check_q_stencil_available, &data));
 
         if (data.is_available) {
             *res_dir = dir;
@@ -132,7 +131,7 @@ static int find_available_edge_q_stencil(mr_ocforest *forest, mr_int node_idx, m
             local_idx[mr_direction_get_axis(dir_1)] += mr_direction_get_sign_mul(dir_1);
 
             stencil_available_userdata data = { node, true };
-            q_stencil_apply(forest, node_idx, local_idx, check_q_stencil_available, &data);
+            q_stencil_apply(forest, node_idx, local_idx, mr_fvm_interpolation_cb_create(check_q_stencil_available, &data));
 
             if (data.is_available) {
                 res_dir[0] = dir_0;
@@ -147,7 +146,8 @@ static int find_available_edge_q_stencil(mr_ocforest *forest, mr_int node_idx, m
 }
 
 static int find_available_vertex_q_stencil(mr_ocforest *forest, mr_int node_idx, mr_octree_node *node, mr_direction res_dir[3]) {
-    for (mr_uint i = 0; i < 8; ++i) {
+#define NB_VERTICES 8
+    for (mr_uint i = 0; i < NB_VERTICES; ++i) {
         mr_sign signs[] = {
             i & 1,
             i >> 1 & 1,
@@ -160,7 +160,7 @@ static int find_available_vertex_q_stencil(mr_ocforest *forest, mr_int node_idx,
         }
 
         stencil_available_userdata data = { node, true };
-        q_stencil_apply(forest, node_idx, local_idx, check_q_stencil_available, &data);
+        q_stencil_apply(forest, node_idx, local_idx, mr_fvm_interpolation_cb_create(check_q_stencil_available, &data));
 
         if (data.is_available) {
             for (mr_int i = 0; i < MR_NB_AXES; ++i) {
@@ -174,41 +174,34 @@ static int find_available_vertex_q_stencil(mr_ocforest *forest, mr_int node_idx,
     return MR_FAILURE;
 }
 
-typedef enum mr_interpolation_stencil_type {
-    MR_STENCIL_TYPE_CENTER = 0,
-    MR_STENCIL_TYPE_FACE = 1,
-    MR_STENCIL_TYPE_EDGE = 2,
-    MR_STENCIL_TYPE_VERTEX = 3,
-} mr_interpolation_stencil_type;
-
 static int find_q_stencil(
     mr_ocforest *forest,
     mr_int node_idx,
-    mr_interpolation_stencil_type *type,
+    mr_adjacency *type,
     mr_direction dir[3]
 ) {
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
 
     if (is_center_q_stencil_available(forest, node_idx, node)) {
-        *type = MR_STENCIL_TYPE_CENTER;
+        *type = MR_ADJACENCY_NONE;
 
         return MR_SUCCESS;
     }
 
     if (find_available_face_q_stencil(forest, node_idx, node, dir) == MR_SUCCESS) {
-        *type = MR_STENCIL_TYPE_FACE;
+        *type = MR_ADJACENCY_FACE;
 
         return MR_SUCCESS;
     }
 
     if (find_available_edge_q_stencil(forest, node_idx, node, dir) == MR_SUCCESS) {
-        *type = MR_STENCIL_TYPE_EDGE;
+        *type = MR_ADJACENCY_EDGE;
 
         return MR_SUCCESS;
     }
 
     if (find_available_vertex_q_stencil(forest, node_idx, node, dir) == MR_SUCCESS) {
-        *type = MR_STENCIL_TYPE_VERTEX;
+        *type = MR_ADJACENCY_VERTEX;
 
         return MR_SUCCESS;
     }
@@ -223,10 +216,12 @@ bool mr_fvm_point_has_interpolation_stencil(mr_ocforest *forest, mr_index octre_
 
     mr_int host_node_idx = mr_octree_locate_point(forest, octre_idx, p);
 
-    mr_interpolation_stencil_type type = MR_STENCIL_TYPE_CENTER;
+    mr_adjacency type = MR_ADJACENCY_NONE;
     mr_direction dir[3] = { 0 };
     
     return find_q_stencil(forest, host_node_idx, &type, dir) == MR_SUCCESS;
 }
+
+// TODO: Return local idx for interpolation stencil
 
 // TODO: Implement interpolation

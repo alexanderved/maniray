@@ -3,6 +3,13 @@
 
 #define MR_NB_AXES 3
 
+typedef enum mr_adjacency {
+    MR_ADJACENCY_NONE = 0,
+    MR_ADJACENCY_FACE = 1,
+    MR_ADJACENCY_EDGE = 2,
+    MR_ADJACENCY_VERTEX = 3,
+} mr_adjacency;
+
 typedef enum mr_axis {
     MR_AXIS_X = 0,
     MR_AXIS_Y = 1,

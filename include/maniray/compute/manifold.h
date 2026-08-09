@@ -13,10 +13,10 @@ typedef struct mr_chart_desc mr_chart_desc;
 typedef struct mr_manifold mr_manifold;
 typedef struct mr_transition mr_transition;
 
-typedef bool (*mr_chart_bounds_fn)(const mr_chart *, const mr_float *);
-typedef void (*mr_chart_period_fn)(const mr_chart *, mr_float *, const mr_float *);
-typedef mr_float (*mr_chart_metric_fn)(const mr_chart *, const mr_float *, size_t, size_t);
-typedef void (*mr_chart_dtor_fn)(mr_chart_desc *);
+typedef bool (*mr_chart_bounds_fn)(const mr_chart *chart, const mr_float *p);
+typedef void (*mr_chart_period_fn)(const mr_chart *chart, mr_float *wp, const mr_float *p);
+typedef mr_float (*mr_chart_metric_fn)(const mr_chart *chart, const mr_float *p, size_t i , size_t j);
+typedef void (*mr_chart_dtor_fn)(mr_chart_desc *chart_desc);
 
 struct mr_chart_desc {
     mr_chart_bounds_fn bounds;
@@ -42,8 +42,8 @@ void mr_chart_default_dtor(mr_chart_desc *chart);
 
 mr_float mr_inner_product(const mr_manifold *manifold, size_t chart_idx, const mr_float *p, const mr_float *v1, const mr_float *v2);
 
-typedef bool (*mr_transition_domain_fn)(const mr_transition *, const mr_float *);
-typedef int (*mr_transition_map_fn)(const mr_transition *, mr_float *, const mr_float *);
+typedef bool (*mr_transition_domain_fn)(const mr_transition *transition, const mr_float *p);
+typedef int (*mr_transition_map_fn)(const mr_transition *transition, mr_float *p_out, const mr_float *p_in);
 
 typedef struct mr_transition_desc {
     mr_transition_domain_fn domain;

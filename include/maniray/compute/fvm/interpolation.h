@@ -3,13 +3,13 @@
 
 #include "maniray/compute/octree.h"
 
-typedef int (*mr_fvm_interpolation_fn)(mr_ocforest *, mr_int, mr_float, void *);
+typedef int (*mr_fvm_interpolation_fn)(mr_ocforest *forest, mr_int node_idx, mr_int stencil_idx[3], mr_float coef, void *userdata);
 typedef struct mr_fvm_interpolation_cb {
     mr_fvm_interpolation_fn fn;
     void *userdata;
 } mr_fvm_interpolation_cb;
 
-static inline mr_fvm_interpolation_cb mr_make_fvm_interpolation_cb(mr_fvm_interpolation_fn fn, void *userdata) {
+static inline mr_fvm_interpolation_cb mr_fvm_interpolation_cb_create(mr_fvm_interpolation_fn fn, void *userdata) {
     return (mr_fvm_interpolation_cb) { fn, userdata };
 }
 

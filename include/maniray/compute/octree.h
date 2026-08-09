@@ -17,9 +17,9 @@
 #define MR_OCTREE_NODE_FLAG_ACTIVE (1 << 0)
 #define MR_OCTREE_NODE_FLAG_LEAF (1 << 1)
 
-#define MR_OCTREE_FLAG_PERIODIC_X (1 << 0)
-#define MR_OCTREE_FLAG_PERIODIC_Y (1 << 1)
-#define MR_OCTREE_FLAG_PERIODIC_Z (1 << 2)
+#define MR_OCTREE_FLAG_PERIODIC_X (1 << MR_AXIS_X)
+#define MR_OCTREE_FLAG_PERIODIC_Y (1 << MR_AXIS_Y)
+#define MR_OCTREE_FLAG_PERIODIC_Z (1 << MR_AXIS_Z)
 
 #define MR_OCTREE_NODE_NB_MAIN_FIELDS 1
 #define MR_OCTREE_NODE_FIELD 0
@@ -62,13 +62,13 @@ typedef struct mr_ocforest {
     mr_mem_pool *nodes;
 } mr_ocforest;
 
-typedef int (*mr_octree_apply_fn)(mr_ocforest *, mr_int, void *);
+typedef int (*mr_octree_apply_fn)(mr_ocforest *forest, mr_int node_idx, void *userdata);
 typedef struct mr_octree_apply_cb {
     mr_octree_apply_fn fn;
     void *userdata;
 } mr_octree_apply_cb;
 
-static inline mr_octree_apply_cb mr_make_octree_apply_cb(mr_octree_apply_fn fn, void *userdata) {
+static inline mr_octree_apply_cb mr_octree_apply_cb_create(mr_octree_apply_fn fn, void *userdata) {
     return (mr_octree_apply_cb) { fn, userdata };
 }
 
@@ -76,13 +76,13 @@ static inline mr_octree_apply_cb mr_octree_apply_cb_null() {
     return (mr_octree_apply_cb) { NULL, NULL };
 }
 
-typedef bool (*mr_octree_cond_fn)(mr_ocforest *, mr_int, void *);
+typedef bool (*mr_octree_cond_fn)(mr_ocforest *forest, mr_int node_idx, void *userdata);
 typedef struct mr_octree_cond_cb {
     mr_octree_cond_fn fn;
     void *userdata;
 } mr_octree_cond_cb;
 
-static inline mr_octree_cond_cb mr_make_octree_cond_cb(mr_octree_cond_fn fn, void *userdata) {
+static inline mr_octree_cond_cb mr_octree_cond_cb_create(mr_octree_cond_fn fn, void *userdata) {
     return (mr_octree_cond_cb) { fn, userdata };
 }
 
@@ -116,7 +116,10 @@ int mr_octree_leaves_apply(
 
 void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]);
 mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, const mr_float p[3]);
+
 mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir);
+mr_int mr_octree_find_edge_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_EDGE]);
+mr_int mr_octree_find_vertex_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_VERTEX]);
 
 void mr_octree_activate(mr_ocforest *forest, mr_index octree_idx, mr_octree_cond_cb cond);
 void mr_octree_activate_all(mr_ocforest *forest, mr_index octree_idx);

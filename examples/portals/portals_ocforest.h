@@ -105,7 +105,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         mr_octree_refine_all(forest, 3);
     }
 
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_cond_cb(adaptive_refine, NULL), true);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(adaptive_refine, NULL), true);
     mr_octree_balance(forest, 0);
 
 
@@ -119,8 +119,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     mr_fvm_fit_grids_to_charts(forest);
-    mr_octree_leaves_apply(forest, 0, mr_octree_cond_cb_null(), mr_make_octree_apply_cb(setup_boundary, NULL), false);
-    mr_octree_leaves_apply(forest, 3, mr_octree_cond_cb_null(), mr_make_octree_apply_cb(setup_boundary_chart3, NULL), false);
+    mr_octree_leaves_apply(forest, 0, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(setup_boundary, NULL), false);
+    mr_octree_leaves_apply(forest, 3, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(setup_boundary_chart3, NULL), false);
     mr_fvm_connect_overset_grids(forest);
 
     clock_gettime(CLOCK_MONOTONIC, &end);
