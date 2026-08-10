@@ -92,16 +92,16 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     clock_gettime(CLOCK_MONOTONIC, &start);
 
 
-    for (size_t i = 0; i < 1; ++i) {
+    for (size_t i = 0; i < 2; ++i) {
         mr_octree_refine_all(forest, 0);
     }
 
     mr_float p[3] = { 0.5f, 0.5f, 0.5f };
-    // mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, p), true);
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, p), false);
+    /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false);
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
-    mr_octree_balance(forest, 0);
+    mr_octree_balance(forest, 0); */
 
     mr_int point_node_idx = mr_octree_locate_point(forest, 0, p);
     mr_octree_node *point_node = mr_ocforest_get_node(forest, point_node_idx);
@@ -113,7 +113,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         point_node->z
     );
 
-    mr_direction vertex[] = { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y, MR_DIRECTION_PL_Z };
+    mr_direction vertex[] = { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y, MR_DIRECTION_MI_Z };
     mr_int neighbor_node_idx = mr_octree_find_vertex_neighbor(forest, point_node_idx, vertex);
     mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_node_idx);
     if (neighbor_node) {

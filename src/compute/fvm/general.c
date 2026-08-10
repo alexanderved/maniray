@@ -1,10 +1,12 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "maniray/compute/fvm/general.h"
+#include "maniray/compute/fvm/interpolation.h"
 #include "maniray/utils/misc.h"
 
 static bool is_node_in_bounds(mr_ocforest *forest, size_t chart_idx, mr_octree_node *node) {
-    mr_float center[3] = { node->x, node->y, node->z };
+    mr_float center[MR_NB_AXES] = { node->x, node->y, node->z };
 
     if (!mr_manifold_is_in_bounds(forest->manifold, chart_idx, center)) {
         return false;
@@ -16,7 +18,7 @@ static bool is_node_in_bounds(mr_ocforest *forest, size_t chart_idx, mr_octree_n
         mr_float y = center[1] + hdim * ((i >> 1) & 1 ? 1.0f : -1.0f);
         mr_float z = center[2] + hdim * ((i >> 2) & 1 ? 1.0f : -1.0f);
 
-        mr_float p[3] = { x, y, z };
+        mr_float p[MR_NB_AXES] = { x, y, z };
         if (!mr_manifold_is_in_bounds(forest->manifold, chart_idx, p)) {
             return false;
         }
@@ -58,7 +60,7 @@ static int setup_initial_conds(mr_ocforest *forest, mr_int idx, void *userdata) 
     return MR_SUCCESS;
 }
 
-static mr_int locate_center_in_other_octree(mr_ocforest *forest, mr_int idx, mr_int other_octree_idx) {
+static int transition_center(mr_ocforest *forest, mr_int idx, mr_int other_octree_idx, mr_float res[MR_NB_AXES]) {
     mr_octree_node *node = mr_ocforest_get_node(forest, idx);
 
     mr_int other_root_idx = forest->roots[other_octree_idx].node_idx;
@@ -67,10 +69,21 @@ static mr_int locate_center_in_other_octree(mr_ocforest *forest, mr_int idx, mr_
     mr_float orig_coords[] = { node->x, node->y, node->z };
     mr_float new_coords[] = { 0.0f, 0.0f, 0.0f };
     if (mr_manifold_transition(forest->manifold, node->chart_idx, other_root_node->chart_idx, new_coords, orig_coords) != MR_SUCCESS) {
+        return MR_FAILURE;
+    }
+
+    memcpy(res, new_coords, MR_NB_AXES * sizeof(mr_float));
+
+    return MR_SUCCESS;
+}
+
+static mr_int locate_center_in_other_octree(mr_ocforest *forest, mr_int idx, mr_int other_octree_idx) {
+    mr_float coords[] = { 0.0f, 0.0f, 0.0f };
+    if (transition_center(forest, idx, other_octree_idx, coords) != MR_SUCCESS) {
         return MR_INVALID_INDEX;
     }
 
-    return mr_octree_locate_point(forest, other_octree_idx, new_coords);
+    return mr_octree_locate_point(forest, other_octree_idx, coords);
 }
 
 static int disable_nodes_near_boundaries(mr_ocforest *forest, mr_int idx, void *userdata) {
@@ -134,12 +147,13 @@ static bool is_valid_interior_node(mr_ocforest *forest, mr_int idx) {
     return true;
 }
 
-// TODO: Check existence of interpolation stencil
 static bool is_valid_interpolation_node(mr_ocforest *forest, mr_int idx, mr_int other_octree_idx) {
-    mr_int donor_node_idx = locate_center_in_other_octree(forest, idx, other_octree_idx);
-    mr_octree_node *donor_node = mr_ocforest_get_node(forest, donor_node_idx);
+    mr_float coords[] = { 0.0f, 0.0f, 0.0f };
+    if (transition_center(forest, idx, other_octree_idx, coords) != MR_SUCCESS) {
+        return false;
+    }
 
-    return donor_node && (donor_node->flags & MR_OCTREE_NODE_FLAG_ACTIVE);
+    return mr_fvm_point_has_interpolation_stencil(forest, other_octree_idx, coords);
 }
 
 static int setup_interpolation(mr_ocforest *forest, mr_int idx, void *userdata) {
@@ -160,13 +174,13 @@ static int setup_interpolation(mr_ocforest *forest, mr_int idx, void *userdata) 
                 is_valid = true;
             } else {
                 --discr_data->grid_connection;
-                ++*nb_updates;
+                ++(*nb_updates);
             }
         } else if (is_valid_interpolation_node(forest, idx, conn - 1)) {
             is_valid = true;
         } else {
             --discr_data->grid_connection;
-            ++*nb_updates;
+            ++(*nb_updates);
         }
 
         --conn;

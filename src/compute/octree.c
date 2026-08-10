@@ -406,8 +406,12 @@ static mr_int mr_octree_find_edge_neighbor_ext(
     }
 
     reflect_path(dir, MR_ADJACENCY_EDGE, path, len);
+    mr_int neighbor_idx = descend_path(forest, ancestor_idx, path, len, nb_refine, max_level);
+    if (neighbor_idx == ancestor_idx) {
+        return MR_INVALID_INDEX;
+    }
 
-    return descend_path(forest, ancestor_idx, path, len, nb_refine, max_level);
+    return neighbor_idx;
 }
 
 mr_int mr_octree_find_edge_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_EDGE]) {
@@ -470,8 +474,12 @@ static mr_int mr_octree_find_vertex_neighbor_ext(
     }
 
     reflect_path(dir, MR_ADJACENCY_VERTEX, path, len);
+    mr_int neighbor_idx = descend_path(forest, ancestor_idx, path, len, nb_refine, max_level);
+    if (neighbor_idx == ancestor_idx) {
+        return MR_INVALID_INDEX;
+    }
 
-    return descend_path(forest, ancestor_idx, path, len, nb_refine, max_level);
+    return neighbor_idx;
 }
 
 mr_int mr_octree_find_vertex_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_VERTEX]) {

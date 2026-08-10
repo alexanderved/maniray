@@ -135,4 +135,11 @@ void mr_octree_refine_all(mr_ocforest *forest, mr_index octree_idx);
 
 void mr_octree_balance(mr_ocforest *forest, mr_index octree_idx);
 
+
+/*
+ * TODO:
+ * 1. Add userdata with dtor
+ * 2. Add callbacks which should be called on some actions (activation, refinement, etc.)
+*/
+
 #endif // _MR_OCTREE_H
