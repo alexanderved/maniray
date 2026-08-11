@@ -7,6 +7,10 @@
 
 #include "maniray/utils/types.h"
 
+/*
+ * TODO: Move userdata to manifold
+*/
+
 typedef struct mr_chart mr_chart;
 typedef struct mr_chart_desc mr_chart_desc;
 

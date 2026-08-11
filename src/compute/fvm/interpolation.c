@@ -83,6 +83,10 @@ static int q_stencil_apply(
     mr_int first_local_idx[MR_NB_AXES],
     mr_fvm_interpolation_cb cb
 ) {
+    if (node_idx == MR_INVALID_INDEX) {
+        return MR_FAILURE;
+    }
+
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
     mr_bitfield visited_nodes = 0;
 
@@ -135,7 +139,7 @@ static int check_q_stencil_available(mr_ocforest *forest, mr_int node_idx, mr_in
     stencil_available_userdata *data = userdata;
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
 
-    if (!(node->flags & (MR_OCTREE_NODE_FLAG_LEAF | MR_OCTREE_NODE_FLAG_ACTIVE)) || data->host_node->level != node->level) {
+    if (!(node->flags & MR_OCTREE_NODE_FLAG_ACTIVE) || !(node->flags & MR_OCTREE_NODE_FLAG_LEAF) || data->host_node->level != node->level) {
         data->is_available = false;
     }
 
@@ -150,9 +154,9 @@ static int find_available_q_stencil(
     mr_int res_local_idx[MR_NB_AXES]
 ) {
     stencil_available_userdata data = { node, true };
-    q_stencil_apply(forest, NULL, node_idx, local_idx, mr_fvm_interpolation_cb_create(check_q_stencil_available, &data));
+    int res = q_stencil_apply(forest, NULL, node_idx, local_idx, mr_fvm_interpolation_cb_create(check_q_stencil_available, &data));
 
-    if (data.is_available) {
+    if (data.is_available && res == MR_SUCCESS) {
         memcpy(res_local_idx, local_idx, MR_NB_AXES * sizeof(mr_int));
 
         return MR_SUCCESS;
@@ -224,6 +228,9 @@ static int find_q_stencil(
     mr_int res_local_idx[MR_NB_AXES]
 ) {
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+    if (!node) {
+        return MR_FAILURE;
+    }
 
     if (find_available_center_q_stencil(forest, node_idx, node, res_local_idx) == MR_SUCCESS) {
         return MR_SUCCESS;

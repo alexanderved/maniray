@@ -10,7 +10,8 @@ typedef enum mr_cell_type {
     MR_CELL_TYPE_NONE,
     MR_CELL_TYPE_BOUNDARY,
     MR_CELL_TYPE_INTERPOLATION,
-    MR_CELL_TYPE_OTHER,
+    MR_CELL_TYPE_INTERIOR,
+    MR_CELL_TYPE_EXTERIOR,
 } mr_cell_type;
 
 typedef struct mr_discretization_data {

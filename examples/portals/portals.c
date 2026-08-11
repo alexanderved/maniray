@@ -129,7 +129,10 @@ int run_display() {
 }
 
 int main() {
-    run_display();
+    // run_display();
+
+    mr_manifold *manifold = setup_manifold();
+    mr_ocforest *forest = setup_ocforest(manifold);
 
     return 0;
 }

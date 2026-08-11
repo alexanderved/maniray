@@ -139,7 +139,8 @@ void mr_octree_balance(mr_ocforest *forest, mr_index octree_idx);
 /*
  * TODO:
  * 1. Add userdata with dtor
- * 2. Add callbacks which should be called on some actions (activation, refinement, etc.)
+ * 2. Add callbacks (call them mr_octree_ops) which should be called on some actions (activation, node initialization during refinement, etc.)
+ * 3. Add functions to conviniently call this callbacks
 */
 
 #endif // _MR_OCTREE_H
