@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 
 #include "maniray/compute/math.h"
 #include "maniray/compute/fvm/general.h"
@@ -366,9 +365,6 @@ void mr_fvm_connect_overset_grids(mr_ocforest *forest) {
         );
     }
 
-    struct timespec start, end;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-
     size_t nb_updates = 0;
     do {
         nb_updates = 0;
@@ -383,12 +379,6 @@ void mr_fvm_connect_overset_grids(mr_ocforest *forest) {
             );
         }
     } while (nb_updates != 0);
-
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
-                           (end.tv_nsec - start.tv_nsec) / 1000;
-
-    printf("Test: %.2f ms\n", (double)elapsed_us / 1000.0);
 
     for (mr_index octree_idx = 0; (size_t)octree_idx < forest->nb_roots; ++octree_idx) {
         mr_octree_leaves_apply(

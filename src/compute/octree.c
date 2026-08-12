@@ -299,12 +299,19 @@ static void reflect_path(
     }
 }
 
+typedef struct refinement_info {
+    const mr_uint expected_level;
+
+    bool did_refine;
+    bool did_update_level;
+} refinement_info;
+
 static mr_int descend_path(
     mr_ocforest *forest,
     mr_int node_idx,
     mr_int path[MR_OCTREE_MAX_LEVEL],
     mr_uint len,
-    size_t *nb_refine,
+    refinement_info *info,
     mr_uint max_level
 ) {
     mr_int curr_idx = node_idx;
@@ -312,10 +319,10 @@ static mr_int descend_path(
 
     while (len > 0) {
         node = mr_ocforest_get_node(forest, curr_idx);
-        if (nb_refine && node->flags & MR_OCTREE_NODE_FLAG_LEAF && node->level < max_level) {
+        if (info && node->flags & MR_OCTREE_NODE_FLAG_LEAF && node->level < max_level) {
             insert_children(forest, curr_idx, NULL);
             node = mr_ocforest_get_node(forest, curr_idx);
-            ++(*nb_refine);
+            info->did_refine = true;
         }
 
         if (node->flags & MR_OCTREE_NODE_FLAG_LEAF) {
@@ -328,26 +335,36 @@ static mr_int descend_path(
     return curr_idx;
 }
 
-static mr_int mr_octree_find_face_neighbor_ext(mr_ocforest *forest, mr_int idx, mr_direction dir, size_t *nb_refine, mr_uint max_level) {
+static mr_int mr_octree_find_face_neighbor_with_refine(
+    mr_ocforest *forest,
+    mr_int idx,
+    mr_direction dir,
+    refinement_info *info
+) {
     if (!forest || idx == MR_INVALID_INDEX) {
         return MR_INVALID_INDEX;
     }
 
     mr_uint len = 0;
     mr_int path[MR_OCTREE_MAX_LEVEL] = { 0 };
+    mr_uint max_level = info ? info->expected_level : 0;
 
     mr_int ancestor_idx = find_ancestor(forest, idx, &dir, MR_ADJACENCY_FACE, path, &len);
     if (ancestor_idx == MR_INVALID_INDEX) {
         return MR_INVALID_INDEX;
     }
 
-    reflect_path(&dir, MR_ADJACENCY_FACE, path, len);
+    if (info && len == 2) {
+        ++max_level;
+        info->did_update_level = true;
+    }
 
-    return descend_path(forest, ancestor_idx, path, len, nb_refine, max_level);
+    reflect_path(&dir, MR_ADJACENCY_FACE, path, len);
+    return descend_path(forest, ancestor_idx, path, len, info, max_level);
 }
 
 mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir) {
-    return mr_octree_find_face_neighbor_ext(forest, idx, dir, NULL, 0);
+    return mr_octree_find_face_neighbor_with_refine(forest, idx, dir, NULL);
 }
 
 static int common_face(
@@ -377,12 +394,11 @@ static int common_face(
     return MR_SUCCESS;
 }
 
-static mr_int mr_octree_find_edge_neighbor_ext(
+static mr_int mr_octree_find_edge_neighbor_with_refine(
     mr_ocforest *forest,
     mr_int idx,
     mr_direction dir[MR_ADJACENCY_EDGE],
-    size_t *nb_refine,
-    mr_uint max_level
+    refinement_info *info
 ) {
     if (!forest || idx == MR_INVALID_INDEX || !dir) {
         return MR_INVALID_INDEX;
@@ -390,6 +406,7 @@ static mr_int mr_octree_find_edge_neighbor_ext(
 
     mr_uint len = 0;
     mr_int path[MR_OCTREE_MAX_LEVEL] = { 0 };
+    mr_uint max_level = info ? info->expected_level : 0;
 
     mr_int ancestor_idx = find_ancestor(forest, idx, dir, MR_ADJACENCY_EDGE, path, &len);
     if (ancestor_idx == MR_INVALID_INDEX) {
@@ -397,17 +414,23 @@ static mr_int mr_octree_find_edge_neighbor_ext(
     }
 
     mr_direction cface;
+    mr_int neighbor_ancestor_idx = ancestor_idx;
     if (common_face(path[len - 1], dir, MR_ADJACENCY_EDGE, &cface) == MR_SUCCESS) {
-        ancestor_idx = mr_octree_find_face_neighbor_ext(forest, ancestor_idx, cface, nb_refine, max_level);
+        neighbor_ancestor_idx = mr_octree_find_face_neighbor_with_refine(forest, ancestor_idx, cface, info);
     }
     
-    if (ancestor_idx == MR_INVALID_INDEX) {
+    if (neighbor_ancestor_idx == MR_INVALID_INDEX) {
         return MR_INVALID_INDEX;
     }
 
+    if (info && len == 2 && neighbor_ancestor_idx == ancestor_idx) {
+        ++max_level;
+        info->did_update_level = true;
+    }
+
     reflect_path(dir, MR_ADJACENCY_EDGE, path, len);
-    mr_int neighbor_idx = descend_path(forest, ancestor_idx, path, len, nb_refine, max_level);
-    if (neighbor_idx == ancestor_idx) {
+    mr_int neighbor_idx = descend_path(forest, neighbor_ancestor_idx, path, len, info, max_level);
+    if (neighbor_idx == neighbor_ancestor_idx) {
         return MR_INVALID_INDEX;
     }
 
@@ -415,7 +438,7 @@ static mr_int mr_octree_find_edge_neighbor_ext(
 }
 
 mr_int mr_octree_find_edge_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_EDGE]) {
-    return mr_octree_find_edge_neighbor_ext(forest, idx, dir, NULL, 0);
+    return mr_octree_find_edge_neighbor_with_refine(forest, idx, dir, NULL);
 }
 
 static int common_edge(
@@ -443,12 +466,11 @@ static int common_edge(
     return MR_SUCCESS;
 }
 
-static mr_int mr_octree_find_vertex_neighbor_ext(
+static mr_int mr_octree_find_vertex_neighbor_with_refine(
     mr_ocforest *forest,
     mr_int idx,
     mr_direction dir[MR_ADJACENCY_VERTEX],
-    size_t *nb_refine,
-    mr_uint max_level
+    refinement_info *info
 ) {
     if (!forest || idx == MR_INVALID_INDEX || !dir) {
         return MR_INVALID_INDEX;
@@ -456,6 +478,7 @@ static mr_int mr_octree_find_vertex_neighbor_ext(
 
     mr_uint len = 0;
     mr_int path[MR_OCTREE_MAX_LEVEL] = { 0 };
+    mr_uint max_level = info ? info->expected_level : 0;
 
     mr_int ancestor_idx = find_ancestor(forest, idx, dir, MR_ADJACENCY_VERTEX, path, &len);
     if (ancestor_idx == MR_INVALID_INDEX) {
@@ -463,19 +486,25 @@ static mr_int mr_octree_find_vertex_neighbor_ext(
     }
 
     mr_direction common_elem[MR_ADJACENCY_EDGE];
+    mr_int neighbor_ancestor_idx = ancestor_idx;
     if (common_edge(path[len - 1], dir, common_elem) == MR_SUCCESS) {
-        ancestor_idx = mr_octree_find_edge_neighbor_ext(forest, ancestor_idx, common_elem, nb_refine, max_level);
+        neighbor_ancestor_idx = mr_octree_find_edge_neighbor_with_refine(forest, ancestor_idx, common_elem, info);
     } else if (common_face(path[len - 1], dir, MR_ADJACENCY_VERTEX, common_elem) == MR_SUCCESS) {
-        ancestor_idx = mr_octree_find_face_neighbor_ext(forest, ancestor_idx, common_elem[0], nb_refine, max_level);
+        neighbor_ancestor_idx = mr_octree_find_face_neighbor_with_refine(forest, ancestor_idx, common_elem[0], info);
     }
 
-    if (ancestor_idx == MR_INVALID_INDEX) {
+    if (neighbor_ancestor_idx == MR_INVALID_INDEX) {
         return MR_INVALID_INDEX;
     }
 
+    if (info && len == 2 && neighbor_ancestor_idx == ancestor_idx) {
+        ++max_level;
+        info->did_update_level = true;
+    }
+
     reflect_path(dir, MR_ADJACENCY_VERTEX, path, len);
-    mr_int neighbor_idx = descend_path(forest, ancestor_idx, path, len, nb_refine, max_level);
-    if (neighbor_idx == ancestor_idx) {
+    mr_int neighbor_idx = descend_path(forest, neighbor_ancestor_idx, path, len, info, max_level);
+    if (neighbor_idx == neighbor_ancestor_idx) {
         return MR_INVALID_INDEX;
     }
 
@@ -483,7 +512,7 @@ static mr_int mr_octree_find_vertex_neighbor_ext(
 }
 
 mr_int mr_octree_find_vertex_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_VERTEX]) {
-    return mr_octree_find_vertex_neighbor_ext(forest, idx, dir, false, 0);
+    return mr_octree_find_vertex_neighbor_with_refine(forest, idx, dir, NULL);
 }
 
 static int activate_leaf(mr_ocforest *forest, mr_int node_idx, void *userdata) {
@@ -579,49 +608,27 @@ static bool balance_filter(mr_ocforest *forest, mr_int node_idx, void *userdata)
     return node->level <= balance_ud->level;
 }
 
-static bool is_mixed_node(mr_ocforest *forest, mr_octree_node *node) {
-    if (node->parent == MR_INVALID_INDEX) {
-        return false;
-    }
-
-    mr_octree_node *parent = mr_ocforest_get_node(forest, node->parent);
-    for (mr_int i = 0; i < MR_OCTREE_NB_CHILDREN; ++i) {
-        mr_octree_node *child = mr_ocforest_get_node(forest, parent->first_child + i);
-        if (!(child->flags & MR_OCTREE_NODE_FLAG_LEAF)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 static int balance_level(mr_ocforest *forest, mr_int node_idx, void *userdata) {
     balance_userdata *balance_ud = userdata;
 
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
     if (node->flags & MR_OCTREE_NODE_FLAG_LEAF && node->level == balance_ud->level) {
-        bool is_mixed = is_mixed_node(forest, node);
-        mr_uint refine_level;
-        if (is_mixed) {
-            refine_level = node->level;
-        } else {
-            refine_level = node->level - 1;
-        }
-
-        size_t nb_refine = 0;
-
+        mr_uint refine_level = node->level - 1;
+        refinement_info info = { refine_level, false, false };
 
         for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
-            mr_octree_find_face_neighbor_ext(forest, node_idx, dir, &nb_refine, refine_level);
+            mr_octree_find_face_neighbor_with_refine(forest, node_idx, dir, &info);
         }
 
         for (mr_direction dir_0 = MR_DIRECTION_MI_X; dir_0 <= MR_DIRECTION_PL_Y; ++dir_0) {
             for (mr_direction dir_1 = dir_0 - mr_direction_get_sign(dir_0) + 2; dir_1 <= MR_DIRECTION_PL_Z; ++dir_1) {
                 mr_direction edge[] = { dir_0, dir_1 };
-                mr_octree_find_edge_neighbor_ext(forest, node_idx, edge, &nb_refine, refine_level);
+                mr_octree_find_edge_neighbor_with_refine(forest, node_idx, edge, &info);
             }
         }
 
+// Vertex balancing isn't actually needed for current algorithms, but I'll leave it for now
+#ifdef BALANCE_VERTEX
 #define NB_VERTICES 8
         for (mr_uint i = 0; i < NB_VERTICES; ++i) {
             mr_sign signs[] = {
@@ -636,10 +643,11 @@ static int balance_level(mr_ocforest *forest, mr_int node_idx, void *userdata) {
                 mr_direction_create(MR_AXIS_Z, signs[MR_AXIS_Z]),
             };
 
-            mr_octree_find_vertex_neighbor_ext(forest, node_idx, vertex, &nb_refine, refine_level);
+            mr_octree_find_vertex_neighbor_with_refine(forest, node_idx, vertex, &info);
         }
+#endif // BALANCE_VERTEX
 
-        if (is_mixed && nb_refine != 0) {
+        if (info.did_refine && info.did_update_level) {
             balance_ud->needs_repeat = true;
         }
     }
