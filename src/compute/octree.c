@@ -561,7 +561,7 @@ static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdat
         mr_octree_node *node = mr_ocforest_get_node(forest, first_child + i);
 
         *node = (mr_octree_node) {
-            .flags = MR_OCTREE_NODE_FLAG_LEAF | (parent->flags & MR_OCTREE_NODE_FLAG_ACTIVE),
+            .flags = MR_OCTREE_NODE_FLAG_UNBALANCED | MR_OCTREE_NODE_FLAG_LEAF | (parent->flags & MR_OCTREE_NODE_FLAG_ACTIVE),
             .level = parent->level + 1,
             .chart_idx = parent->chart_idx,
             .x = parent->x + (i & 1 ? qdim : -qdim),
@@ -612,7 +612,7 @@ static int balance_level(mr_ocforest *forest, mr_int node_idx, void *userdata) {
     balance_userdata *balance_ud = userdata;
 
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
-    if (node->flags & MR_OCTREE_NODE_FLAG_LEAF && node->level == balance_ud->level) {
+    if (node->flags & (MR_OCTREE_NODE_FLAG_UNBALANCED | MR_OCTREE_NODE_FLAG_LEAF) && node->level == balance_ud->level) {
         mr_uint refine_level = node->level - 1;
         refinement_info info = { refine_level, false, false };
 
@@ -650,6 +650,7 @@ static int balance_level(mr_ocforest *forest, mr_int node_idx, void *userdata) {
         if (info.did_refine && info.did_update_level) {
             balance_ud->needs_repeat = true;
         }
+        node->flags &= ~MR_OCTREE_NODE_FLAG_UNBALANCED;
     }
 
     return MR_SUCCESS;

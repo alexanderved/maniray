@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "maniray/compute/math.h"
 #include "maniray/compute/fvm/interpolation.h"
 #include "maniray/utils/misc.h"
 
@@ -43,13 +44,25 @@ static mr_int get_next_node_index(mr_ocforest *forest, mr_int first_idx, mr_int 
     return mr_octree_find_face_neighbor(forest, prev_idx, dir);
 }
 
-static mr_float lagrange_coef(mr_float x, mr_int first_idx, mr_int idx) {
+static mr_float lagrange_coef(mr_float x, mr_float stencil[Q_STENCIL_DIM], mr_int idx) {
     mr_float res = 1.0f;
     for (mr_int i = 0; i < Q_STENCIL_DIM; ++i) {
-        res *= (x - (mr_float)(first_idx + i)) / (mr_float)(idx - first_idx - i);
+        if (i != idx) {
+            res *= (x - stencil[i]) / (stencil[idx] - stencil[i]);
+        }
     }
 
     return res;
+}
+
+static mr_float lagrange_coef_with_idx(mr_float x, mr_int first_idx, mr_int idx) {
+    mr_float stencil[] = {
+        (mr_float)first_idx,
+        (mr_float)(first_idx + 1),
+        (mr_float)(first_idx + 2),
+    };
+
+    return lagrange_coef(x, stencil, idx - first_idx);
 }
 
 static mr_float calculate_coef(
@@ -70,7 +83,7 @@ static mr_float calculate_coef(
 
     mr_float coef = 1.0f;
     for (mr_int i = 0; i < Q_STENCIL_DIM; ++i) {
-        coef *= lagrange_coef(local_coords[i], first_local_idx[i], local_idx[i]);
+        coef *= lagrange_coef_with_idx(local_coords[i], first_local_idx[i], local_idx[i]);
     }
 
     return coef;
@@ -117,7 +130,7 @@ static int q_stencil_apply(
                 }
 
                 mr_float coef = calculate_coef(p, node, first_local_idx, local_idx);
-                cb.fn(forest, z_node_idx, local_idx, coef, cb.userdata);
+                cb.fn(forest, z_node_idx, coef, cb.userdata);
 
                 visited_nodes |= 1 << flatten_idx(first_local_idx, local_idx);
             }
@@ -132,8 +145,7 @@ typedef struct stencil_available_userdata {
     bool is_available;
 } stencil_available_userdata;
 
-static int check_q_stencil_available(mr_ocforest *forest, mr_int node_idx, mr_int local_idx[MR_NB_AXES], mr_float coef, void *userdata) {
-    MR_UNUSED(local_idx);
+static int check_q_stencil_available(mr_ocforest *forest, mr_int node_idx, mr_float coef, void *userdata) {
     MR_UNUSED(coef);
 
     stencil_available_userdata *data = userdata;
@@ -232,20 +244,17 @@ static int find_q_stencil(
         return MR_FAILURE;
     }
 
-    if (find_available_center_q_stencil(forest, node_idx, node, res_local_idx) == MR_SUCCESS) {
-        return MR_SUCCESS;
-    }
+    int (*search_funcs[])(mr_ocforest *, mr_int, mr_octree_node *, mr_int[]) = {
+        find_available_center_q_stencil,
+        find_available_face_q_stencil,
+        find_available_edge_q_stencil,
+        find_available_vertex_q_stencil,
+    };
 
-    if (find_available_face_q_stencil(forest, node_idx, node, res_local_idx) == MR_SUCCESS) {
-        return MR_SUCCESS;
-    }
-
-    if (find_available_edge_q_stencil(forest, node_idx, node, res_local_idx) == MR_SUCCESS) {
-        return MR_SUCCESS;
-    }
-
-    if (find_available_vertex_q_stencil(forest, node_idx, node, res_local_idx) == MR_SUCCESS) {
-        return MR_SUCCESS;
+    for (size_t i = MR_ADJACENCY_NONE; i <= MR_ADJACENCY_VERTEX; ++i) {
+        if (search_funcs[i](forest, node_idx, node, res_local_idx) == MR_SUCCESS) {
+            return MR_SUCCESS;
+        }
     }
 
     return MR_FAILURE;
@@ -274,4 +283,98 @@ int mr_fvm_perform_interpolation(mr_ocforest *forest, mr_index octree_idx, const
     }
 
     return q_stencil_apply(forest, p, host_node_idx, local_idx, interp);
+}
+
+static int find_ghost_cell_stencil(mr_ocforest *forest, mr_int node_idx, mr_direction dir[MR_ADJACENCY_VERTEX], mr_int stencil[Q_STENCIL_DIM]) {
+    mr_int center_stencil[Q_STENCIL_DIM] = { MR_INVALID_INDEX, node_idx, MR_INVALID_INDEX };
+    mr_int close_node_idx = MR_INVALID_INDEX;
+    mr_int far_node_idx = MR_INVALID_INDEX;
+
+    mr_direction reflected_dir[] = {
+        mr_direction_reflect(dir[0]),
+        mr_direction_reflect(dir[1]),
+        mr_direction_reflect(dir[2]),
+    };
+
+    center_stencil[0] = mr_octree_find_vertex_neighbor(forest, node_idx, dir);
+    center_stencil[2] = mr_octree_find_vertex_neighbor(forest, node_idx, reflected_dir);
+
+    if (center_stencil[0] == MR_INVALID_INDEX) {
+        far_node_idx = mr_octree_find_vertex_neighbor(forest, center_stencil[2], reflected_dir);
+        if (far_node_idx == MR_INVALID_INDEX) {
+            return MR_FAILURE;
+        }
+
+        stencil[0] = center_stencil[1];
+        stencil[1] = center_stencil[2];
+        stencil[2] = far_node_idx;
+
+        return MR_SUCCESS;
+    } else if (center_stencil[2] == MR_INVALID_INDEX) {
+        close_node_idx = mr_octree_find_vertex_neighbor(forest, center_stencil[0], dir);
+        if (close_node_idx == MR_INVALID_INDEX) {
+            return MR_FAILURE;
+        }
+
+        stencil[0] = close_node_idx;
+        stencil[1] = center_stencil[0];
+        stencil[2] = center_stencil[1];
+
+        return MR_SUCCESS;
+    }
+    
+    stencil[0] = center_stencil[0];
+    stencil[1] = center_stencil[1];
+    stencil[2] = center_stencil[2];
+
+    return MR_SUCCESS;
+}
+
+bool mr_fvm_admits_ghost_cell(mr_ocforest *forest, mr_int node_idx, mr_direction dir[MR_ADJACENCY_VERTEX]) {
+    if (!forest || node_idx == MR_INVALID_INDEX || !dir) {
+        return false;
+    }
+
+    mr_int stencil[Q_STENCIL_DIM] = { 0 };
+    return find_ghost_cell_stencil(forest, node_idx, dir, stencil) == MR_SUCCESS;
+}
+
+int mr_fvm_calculate_ghost_cell(mr_ocforest *forest, mr_int node_idx, mr_direction dir[MR_ADJACENCY_VERTEX], mr_fvm_interpolation_cb interp) {
+    if (!forest || node_idx == MR_INVALID_INDEX || !dir || !interp.fn) {
+        return MR_FAILURE;
+    }
+
+    mr_int stencil[Q_STENCIL_DIM] = { 0 };
+    if (find_ghost_cell_stencil(forest, node_idx, dir, stencil) != MR_SUCCESS) {
+        return MR_FAILURE;
+    }
+
+    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+    mr_float ghost_cell_center[] = { node->x, node->y, node->z };
+    for (size_t i = 0; i < MR_ADJACENCY_VERTEX; ++i) {
+        mr_axis axis = mr_direction_get_axis(dir[i]);
+        mr_float sign_mul = mr_direction_get_sign_mul(dir[i]);
+
+        ghost_cell_center[axis] += sign_mul * node->dim / 4.0f;
+    }
+
+    mr_octree_node *first_node = mr_ocforest_get_node(forest, stencil[0]);
+    mr_float dist = mr_norm2(
+        ghost_cell_center[MR_AXIS_X] - first_node->x,
+        ghost_cell_center[MR_AXIS_Y] - first_node->y,
+        ghost_cell_center[MR_AXIS_Z] - first_node->z
+    );
+
+    mr_float data_points[Q_STENCIL_DIM] = { 0.0f };
+    for (size_t i = 1; i < Q_STENCIL_DIM; ++i) {
+        node = mr_ocforest_get_node(forest, stencil[i]);
+        data_points[i] = mr_norm2(node->x - first_node->x, node->y - first_node->y, node->z - first_node->z);
+    }
+
+    for (size_t i = 0; i < Q_STENCIL_DIM; ++i) {
+        mr_float coef = lagrange_coef(dist, data_points, i);
+        interp.fn(forest, stencil[i], coef, interp.userdata);
+    }
+
+    return MR_SUCCESS;
 }

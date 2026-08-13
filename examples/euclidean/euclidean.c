@@ -74,6 +74,22 @@ static bool area_refine2(mr_ocforest *forest, mr_int idx, void *userdata) {
     return node->y <= -1.0f; // && node->z >= 0.0;
 }
 
+static int interpolation_test(mr_ocforest *forest, mr_int node_idx, mr_float coef, void *userdata) {
+    MR_UNUSED(userdata);
+
+    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+    printf("Interpolation Node %d (Coef: %f): %f   (%f, %f, %f)\n",
+        node_idx,
+        coef,
+        node->dim,
+        node->x,
+        node->y,
+        node->z
+    );
+
+    return MR_SUCCESS;
+}
+
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #define NB_ROOTS 1
     mr_octree_root_desc descs[NB_ROOTS] = {
@@ -96,14 +112,21 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         mr_octree_refine_all(forest, 0);
     }
 
-    mr_float p[3] = { 0.5f, 0.5f, 0.5f };
+    mr_float p[3] = { 0.5f, 0.5f, -0.5f };
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, p), false);
     /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false);
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false); */
-    mr_octree_balance(forest, 0);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
+    mr_octree_balance(forest, 0); */
 
-    mr_int point_node_idx = mr_octree_locate_point(forest, 0, (mr_float[]) { 1.5f, 1.5f, 1.5f });
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
+                           (end.tv_nsec - start.tv_nsec) / 1000;
+
+    printf("Refine + Balance: %.2f ms\n", (double)elapsed_us / 1000.0);
+
+
+    mr_int point_node_idx = mr_octree_locate_point(forest, 0, (mr_float[]) { 1.0f, 1.0f, 1.0f });
     mr_octree_node *point_node = mr_ocforest_get_node(forest, point_node_idx);
     printf("Point Node %d: %f   (%f, %f, %f)\n",
         point_node_idx,
@@ -126,12 +149,12 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         );
     }
 
-
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
-                           (end.tv_nsec - start.tv_nsec) / 1000;
-
-    printf("Refine + Balance: %.2f ms\n", (double)elapsed_us / 1000.0);
+    mr_fvm_calculate_ghost_cell(
+        forest,
+        point_node_idx,
+        (mr_direction[]) { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y, MR_DIRECTION_MI_Z },
+        mr_fvm_interpolation_cb_create(interpolation_test, NULL)
+    );
 
 
     clock_gettime(CLOCK_MONOTONIC, &start);

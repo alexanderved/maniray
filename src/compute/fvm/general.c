@@ -229,8 +229,7 @@ static int setup_interpolation(mr_ocforest *forest, mr_int idx, void *userdata) 
     return MR_SUCCESS;
 }
 
-static int mark_interpolation_nodes(mr_ocforest *forest, mr_int idx, mr_int stencil_idx[3], mr_float coef, void *userdata) {
-    MR_UNUSED(stencil_idx);
+static int mark_interpolation_nodes(mr_ocforest *forest, mr_int idx, mr_float coef, void *userdata) {
     MR_UNUSED(coef);
     MR_UNUSED(userdata);
 

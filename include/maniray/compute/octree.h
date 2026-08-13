@@ -16,6 +16,7 @@
 
 #define MR_OCTREE_NODE_FLAG_ACTIVE (1 << 0)
 #define MR_OCTREE_NODE_FLAG_LEAF (1 << 1)
+#define MR_OCTREE_NODE_FLAG_UNBALANCED (1 << 2)
 
 #define MR_OCTREE_FLAG_PERIODIC_X (1 << MR_AXIS_X)
 #define MR_OCTREE_FLAG_PERIODIC_Y (1 << MR_AXIS_Y)
@@ -141,6 +142,7 @@ void mr_octree_balance(mr_ocforest *forest, mr_index octree_idx);
  * 1. Add userdata with dtor
  * 2. Add callbacks (call them mr_octree_ops) which should be called on some actions (activation, node initialization during refinement, etc.)
  * 3. Add functions to conviniently call this callbacks
+ * 4. Add face neighbor caching
 */
 
 #endif // _MR_OCTREE_H
