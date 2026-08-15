@@ -25,8 +25,7 @@ static int setup_boundary(mr_ocforest *forest, mr_int idx, void *userdata) {
 
     for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
         mr_int nidx = mr_octree_find_face_neighbor(forest, idx, dir);
-        mr_octree_node *n = mr_ocforest_get_node(forest, nidx);
-        if (!n) {
+        if (nidx == MR_INVALID_INDEX) {
             discr_data->type = MR_CELL_TYPE_BOUNDARY;
 
             break;
@@ -47,9 +46,7 @@ static int setup_boundary_chart3(mr_ocforest *forest, mr_int idx, void *userdata
     mr_direction dir = MR_DIRECTION_MI_X;
 
     mr_int nidx = mr_octree_find_face_neighbor(forest, idx, dir);
-    mr_octree_node *n = mr_ocforest_get_node(forest, nidx);
-
-    if (!n) {
+    if (nidx == MR_INVALID_INDEX) {
         discr_data->type = MR_CELL_TYPE_BOUNDARY;
     }
 

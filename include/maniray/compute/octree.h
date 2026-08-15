@@ -107,6 +107,8 @@ mr_octree_node *mr_ocforest_get_node_array(mr_ocforest *forest);
 void *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field);
 void *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field);
 
+mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int idx);
+
 int mr_octree_leaves_apply(
     mr_ocforest *forest,
     mr_index octree_idx,

@@ -44,8 +44,7 @@ static int setup_boundary(mr_ocforest *forest, mr_int idx, void *userdata) {
 
     for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
         mr_int nidx = mr_octree_find_face_neighbor(forest, idx, dir);
-        mr_octree_node *n = mr_ocforest_get_node(forest, nidx);
-        if (!n) {
+        if (nidx == MR_INVALID_INDEX) {
             discr_data->type = MR_CELL_TYPE_BOUNDARY;
 
             break;
@@ -63,14 +62,16 @@ static bool point_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
 }
 
 static bool area_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+    MR_UNUSED(userdata);
 
+    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
     return node->y <= -1.0f; // && node->z >= 0.0;
 }
 
 static bool area_refine2(mr_ocforest *forest, mr_int idx, void *userdata) {
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+    MR_UNUSED(userdata);
 
+    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
     return node->y <= -1.0f; // && node->z >= 0.0;
 }
 
@@ -126,7 +127,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     printf("Refine + Balance: %.2f ms\n", (double)elapsed_us / 1000.0);
 
 
-    mr_int point_node_idx = mr_octree_locate_point(forest, 0, (mr_float[]) { 1.0f, 1.0f, 1.0f });
+    mr_int point_node_idx = mr_octree_locate_point(forest, 0, (mr_float[]) { 1.0f, -1.0f, 1.0f });
     mr_octree_node *point_node = mr_ocforest_get_node(forest, point_node_idx);
     printf("Point Node %d: %f   (%f, %f, %f)\n",
         point_node_idx,
@@ -135,6 +136,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         point_node->y,
         point_node->z
     );
+
+    printf("Point Node Code: %d\n", mr_ocforest_get_code(forest, point_node_idx));
 
     // mr_direction vertex[] = { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y, MR_DIRECTION_MI_Z };
     mr_int neighbor_node_idx = mr_octree_find_face_neighbor(forest, point_node_idx, MR_DIRECTION_PL_X);

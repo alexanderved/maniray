@@ -1,6 +1,8 @@
-#include <string.h>
+#include <assert.h>
 #include <math.h>
+#include <string.h>
 #include <stdio.h>
+#include <tgmath.h>
 
 #include "maniray/compute/math.h"
 #include "maniray/compute/octree.h"
@@ -93,6 +95,61 @@ void *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field) {
 
 void *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field) {
     return forest ? mr_mem_pool_array_ptr(forest->nodes, MR_OCTREE_NODE_NB_MAIN_FIELDS + field) : NULL;
+}
+
+static void get_root_corner(mr_octree_node *root, mr_float coords[MR_NB_AXES]) {
+    mr_float hdim = root->dim / 2.0f;
+
+    coords[MR_AXIS_X] = root->x - hdim;
+    coords[MR_AXIS_Y] = root->y - hdim;
+    coords[MR_AXIS_Z] = root->z - hdim;
+}
+
+static void get_node_int_coords(mr_ocforest *forest, mr_octree_node *node, mr_int coords[MR_NB_AXES]) {
+    mr_octree_node *root = mr_ocforest_get_node(forest, forest->roots[node->root].node_idx);
+
+    mr_float root_coords[MR_NB_AXES] = { 0.0f };
+    get_root_corner(root, root_coords);    
+
+    mr_float hdim = node->dim / 2.0f;
+    mr_float scale = (mr_float)(1 << MR_OCTREE_MAX_LEVEL) / root->dim;
+
+    coords[MR_AXIS_X] = (mr_int)llround((node->x - root_coords[MR_AXIS_X] - hdim) * scale);
+    coords[MR_AXIS_Y] = (mr_int)llround((node->y - root_coords[MR_AXIS_Y] - hdim) * scale);
+    coords[MR_AXIS_Z] = (mr_int)llround((node->z - root_coords[MR_AXIS_Z] - hdim) * scale);
+
+    mr_int max_value = (1 << MR_OCTREE_MAX_LEVEL) - 1;
+    coords[MR_AXIS_X] = MR_CLAMP(coords[MR_AXIS_X], 0, max_value);
+    coords[MR_AXIS_Y] = MR_CLAMP(coords[MR_AXIS_Y], 0, max_value);
+    coords[MR_AXIS_Z] = MR_CLAMP(coords[MR_AXIS_Z], 0, max_value);
+}
+
+static mr_int interleave_bits(mr_int ix, mr_int iy, mr_int iz, size_t bits) {
+    mr_int code = 0;
+    for (size_t b = 0; b < bits; b++) {
+        code |= ((mr_int)((ix >> b) & 1) << (3 * b));
+        code |= ((mr_int)((iy >> b) & 1) << (3 * b + 1));
+        code |= ((mr_int)((iz >> b) & 1) << (3 * b + 2));
+    }
+
+    return code;
+}
+
+mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int idx) {
+    if (!forest || idx == MR_INVALID_INDEX) {
+        return MR_INVALID_INDEX;
+    }
+    assert(1 << (MR_INT_NB_BITS - MR_NB_AXES * MR_OCTREE_MAX_LEVEL - 1) > forest->nb_roots);
+
+    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+
+    mr_int coords[MR_NB_AXES] = { 0 };
+    get_node_int_coords(forest, node, coords);
+
+    mr_int morton_code = interleave_bits(coords[MR_AXIS_X], coords[MR_AXIS_Y], coords[MR_AXIS_Z], MR_OCTREE_MAX_LEVEL);
+    mr_int root_code = node->root << MR_NB_AXES * MR_OCTREE_MAX_LEVEL;
+
+    return morton_code | root_code;
 }
 
 int mr_octree_leaves_apply(
