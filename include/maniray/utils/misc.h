@@ -6,7 +6,6 @@
 
 #define MR_UNUSED(x) ((void)(x))
 
-#define MR_TEXTURE_BINDING 0
-#define MR_INFO_BINDING 1
+#define MR_INVALID_INDEX -1
 
 #endif // _MR_MISC_H

@@ -4,8 +4,8 @@ add_subdirectory(display)
 add_subdirectory(utils)
 add_subdirectory(compute)
 
-target_compile_options(maniray PUBLIC -Wall -Wextra -Wpedantic)
-# target_link_options(maniray PRIVATE -fsanitize=address -fsanitize=leak)
+target_compile_options(maniray PUBLIC -Wall -Wextra -Wpedantic -Wno-unused-function)
+# target_link_options(maniray PUBLIC -fsanitize=address -fsanitize=leak)
 
 target_link_libraries(maniray ${LIBS})
 

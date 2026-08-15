@@ -5,8 +5,7 @@
 #include <stdbool.h>
 
 #include "maniray/utils/types.h"
-
-#define MR_INVALID_INDEX -1
+#include "maniray/utils/misc.h"
 
 typedef struct mr_mem_pool mr_mem_pool;
 

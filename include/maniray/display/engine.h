@@ -4,6 +4,9 @@
 #include "window.h"
 #include "program.h"
 
+#define MR_TEXTURE_BINDING 0
+#define MR_INFO_BINDING 1
+
 typedef struct mr_engine mr_engine;
 
 typedef void (*mr_engine_update)(mr_engine *, void *);

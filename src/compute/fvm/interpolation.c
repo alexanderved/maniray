@@ -239,11 +239,11 @@ static int find_q_stencil(
     mr_int node_idx,
     mr_int res_local_idx[MR_NB_AXES]
 ) {
-    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
-    if (!node) {
+    if (node_idx == MR_INVALID_INDEX) {
         return MR_FAILURE;
     }
 
+    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
     int (*search_funcs[])(mr_ocforest *, mr_int, mr_octree_node *, mr_int[]) = {
         find_available_center_q_stencil,
         find_available_face_q_stencil,

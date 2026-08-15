@@ -120,11 +120,11 @@ static int disable_nodes_near_boundaries(mr_ocforest *forest, mr_int idx, void *
 static bool is_valid_interior_node(mr_ocforest *forest, mr_int idx) {
     for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
         mr_int nidx = mr_octree_find_face_neighbor(forest, idx, dir);
-        mr_octree_node *n = mr_ocforest_get_node(forest, nidx);
-        if (!n) {
+        if (nidx == MR_INVALID_INDEX) {
             return false;
         }
 
+        mr_octree_node *n = mr_ocforest_get_node(forest, nidx);
         if (n->flags & MR_OCTREE_NODE_FLAG_LEAF) {
             if (!(n->flags & MR_OCTREE_NODE_FLAG_ACTIVE)) {
                 return false;

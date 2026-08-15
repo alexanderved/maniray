@@ -1,7 +1,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <stdalign.h>
+#include <assert.h>
 
+#include "maniray/compute/math.h"
 #include "maniray/utils/mem_pool.h"
 #include "maniray/utils/xmalloc.h"
 #include "maniray/utils/misc.h"
@@ -270,8 +273,29 @@ static size_t valid_arr_cap(size_t cap) {
     return cap / MR_INT_NB_BITS + (cap % MR_INT_NB_BITS != 0);
 }
 
+#define MAX_ALIGNMENT (alignof(max_align_t))
+
+static size_t size_to_aligned_cap(size_t size) {
+    size_t mod_size = size % MAX_ALIGNMENT;
+    return MAX_ALIGNMENT / mod_size - (MAX_ALIGNMENT % mod_size == 0) + 1;
+}
+
+static size_t max_aligned_cap(mr_mem_pool *pool) {
+    size_t block_size_aligned_cap = 0;
+    size_t aligned_cap = 1;
+
+    for (size_t i = 0; i < pool->nb_types; ++i) {
+        block_size_aligned_cap = size_to_aligned_cap(get_block_size(pool, i));
+        aligned_cap = MR_MAX(aligned_cap, block_size_aligned_cap);
+    }
+
+    return closest_power_of_two(aligned_cap);
+}
+
 static void init_mem_pool(mr_mem_pool *pool, size_t init_cap) {
-    init_cap = closest_power_of_two(init_cap);
+    size_t aligned_cap = max_aligned_cap(pool);
+    size_t rounded_cap = closest_power_of_two(init_cap);
+    init_cap = MR_MAX(aligned_cap, rounded_cap);
 
     pool->capacity = init_cap;
     pool->data = xmalloc(get_full_size(pool) * init_cap);

@@ -4,8 +4,11 @@
 #include "maniray/utils/types.h"
 
 #define MR_PI 3.14159265358979323846
+
 #define MR_MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MR_MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MR_CLAMP(x, low, high) (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
+
 #define MR_ABS(a) ((a) > 0 ? (a) : -(a))
 
 mr_float mr_norm2_2d(mr_float x, mr_float y);
