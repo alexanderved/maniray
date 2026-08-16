@@ -137,7 +137,9 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         point_node->z
     );
 
-    printf("Point Node Code: %d\n", mr_ocforest_get_code(forest, point_node_idx));
+    mr_int code = mr_ocforest_get_code(forest, point_node_idx);
+    printf("Point Node Code: %d\n", code);
+    printf("Test: %d\n", mr_ocforest_find_node_with_code(forest, code));
 
     // mr_direction vertex[] = { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y, MR_DIRECTION_MI_Z };
     mr_int neighbor_node_idx = mr_octree_find_face_neighbor(forest, point_node_idx, MR_DIRECTION_PL_X);

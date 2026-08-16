@@ -108,6 +108,7 @@ void *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field);
 void *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field);
 
 mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int idx);
+mr_int mr_ocforest_find_node_with_code(mr_ocforest *forest, mr_int code);
 
 int mr_octree_leaves_apply(
     mr_ocforest *forest,

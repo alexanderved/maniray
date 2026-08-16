@@ -152,6 +152,32 @@ mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int idx) {
     return morton_code | root_code;
 }
 
+static mr_int extract_local_idx_from_code(mr_int code, mr_int level) {
+    return code >> MR_NB_AXES * (MR_OCTREE_MAX_LEVEL - level) & 0x7;
+}
+
+mr_int mr_ocforest_find_node_with_code(mr_ocforest *forest, mr_int code) {
+    if (!forest || code == MR_INVALID_INDEX) {
+        return MR_INVALID_INDEX;
+    }
+
+    mr_int root_idx = code >> MR_NB_AXES * MR_OCTREE_MAX_LEVEL;
+
+    mr_int node_idx = forest->roots[root_idx].node_idx;
+    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+
+    for (mr_int level = 1; level <= MR_OCTREE_MAX_LEVEL; ++level) {
+        if (node->flags & MR_OCTREE_NODE_FLAG_LEAF) {
+            break;
+        }
+
+        node_idx = node->first_child + extract_local_idx_from_code(code, level);
+        node = mr_ocforest_get_node(forest, node_idx);
+    }
+
+    return node_idx;
+}
+
 int mr_octree_leaves_apply(
     mr_ocforest *forest,
     mr_index octree_idx,
