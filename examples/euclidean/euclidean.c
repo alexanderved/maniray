@@ -11,7 +11,7 @@
 #include "maniray/compute/math.h"
 #include "maniray/compute/manifold.h"
 #include "maniray/compute/octree.h"
-#include "maniray/compute/fvm/general.h"
+#include "maniray/compute/fvm/grid.h"
 #include "maniray/compute/fvm/interpolation.h"
 
 static bool chart_0_bounds(const mr_chart *chart, const mr_float *p) {
@@ -115,6 +115,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     mr_float p[3] = { 0.5f, 0.5f, -0.5f };
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, p), false);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false);
     /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false);
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
@@ -127,7 +128,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     printf("Refine + Balance: %.2f ms\n", (double)elapsed_us / 1000.0);
 
 
-    mr_int point_node_idx = mr_octree_locate_point(forest, 0, (mr_float[]) { 1.0f, -1.0f, 1.0f });
+    mr_int point_node_idx = mr_octree_locate_point(forest, 0, (mr_float[]) { 1.0f, 1.0f, 1.0f });
     mr_octree_node *point_node = mr_ocforest_get_node(forest, point_node_idx);
     printf("Point Node %d: %f   (%f, %f, %f)\n",
         point_node_idx,
@@ -137,12 +138,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         point_node->z
     );
 
-    mr_int code = mr_ocforest_get_code(forest, point_node_idx);
-    printf("Point Node Code: %d\n", code);
-    printf("Test: %d\n", mr_ocforest_find_node_with_code(forest, code));
-
-    // mr_direction vertex[] = { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y, MR_DIRECTION_MI_Z };
-    mr_int neighbor_node_idx = mr_octree_find_face_neighbor(forest, point_node_idx, MR_DIRECTION_PL_X);
+    mr_direction edge[] = { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y };
+    mr_int neighbor_node_idx = mr_octree_find_edge_neighbor(forest, point_node_idx, edge);
     mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_node_idx);
     if (neighbor_node) {
         printf("Neighbor Node %d: %f   (%f, %f, %f)\n",

@@ -81,6 +81,28 @@ size_t mr_ocforest_size(mr_ocforest *forest) {
     return forest ? mr_mem_pool_len_bound(forest->nodes) : 0;
 }
 
+static int leaves_counter(mr_ocforest *forest, mr_int node_idx, void *userdata) {
+    MR_UNUSED(forest);
+    MR_UNUSED(node_idx);
+
+    ++(*(size_t *)userdata);
+
+    return MR_SUCCESS;
+}
+
+size_t mr_ocforest_count_leaves(mr_ocforest *forest) {
+    if (!forest) {
+        return 0;
+    }
+
+    size_t nb_leaves = 0;
+    for (mr_index octree_idx = 0; (size_t)octree_idx < forest->nb_roots; ++octree_idx) {
+        mr_octree_leaves_apply(forest, octree_idx, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(leaves_counter, &nb_leaves), false);
+    }
+
+    return nb_leaves;
+}
+
 mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx) {
     return forest ? mr_mem_pool_ptr(forest->nodes, MR_OCTREE_NODE_FIELD, idx) : NULL;
 }

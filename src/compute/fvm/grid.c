@@ -2,7 +2,7 @@
 #include <string.h>
 
 #include "maniray/compute/math.h"
-#include "maniray/compute/fvm/general.h"
+#include "maniray/compute/fvm/grid.h"
 #include "maniray/compute/fvm/interpolation.h"
 #include "maniray/utils/misc.h"
 

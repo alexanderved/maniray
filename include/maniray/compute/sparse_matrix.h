@@ -34,8 +34,6 @@ typedef struct mr_sparse_matrix_builder {
 mr_sparse_matrix_builder *mr_sparse_matrix_builder_create(size_t dim);
 void mr_sparse_matrix_builder_destroy(mr_sparse_matrix_builder *builder);
 
-mr_sparse_matrix_builder *mr_sparse_matrix_builder_copy(mr_sparse_matrix_builder *other);
-
 void mr_sparse_matrix_builder_add_row(mr_sparse_matrix_builder *builder, mr_sparse_row *row);
 
 #endif // _MR_SPARSE_MATRIX_H

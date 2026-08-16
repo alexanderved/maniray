@@ -1,2 +1,3 @@
-target_sources(maniray PRIVATE general.c
-    interpolation.c)
+target_sources(maniray PRIVATE grid.c
+    interpolation.c
+    poisson.c)

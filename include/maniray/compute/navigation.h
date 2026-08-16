@@ -54,4 +54,13 @@ static inline mr_direction mr_direction_reflect(mr_direction dir) {
     return dir - mr_direction_get_sign_mul(dir);
 }
 
+static inline mr_int mr_direction_to_local_idx(mr_direction dir[MR_ADJACENCY_VERTEX]) {
+    mr_int local_idx = 0;
+    for (mr_int i = 0; i < MR_ADJACENCY_VERTEX; ++i) {
+        local_idx |= (mr_int)mr_direction_get_sign(dir[i]) << mr_direction_get_axis(dir[i]);
+    }
+
+    return local_idx;
+}
+
 #endif // _MR_NAVIGATION_H

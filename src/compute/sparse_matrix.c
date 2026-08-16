@@ -98,26 +98,6 @@ mr_sparse_matrix_builder *mr_sparse_matrix_builder_create(size_t dim) {
     return builder;
 }
 
-mr_sparse_matrix_builder *mr_sparse_matrix_builder_copy(mr_sparse_matrix_builder *other) {
-    if (!other) {
-        return NULL;
-    }
-
-    mr_sparse_matrix_builder *builder = mr_sparse_matrix_builder_create(other->dim);
-
-    builder->nb_cols = other->nb_cols;
-    builder->nb_rows = other->nb_rows;
-
-    builder->values = xmalloc(builder->nb_cols * sizeof(mr_float));
-    builder->cols = xmalloc(builder->nb_cols * sizeof(size_t));
-
-    memcpy(builder->values, other->values, builder->nb_cols * sizeof(mr_float));
-    memcpy(builder->cols, other->cols, builder->nb_cols * sizeof(size_t));
-    memcpy(builder->rows, other->rows, (builder->dim + 1) * sizeof(size_t));
-
-    return builder;
-}
-
 void mr_sparse_matrix_builder_destroy(mr_sparse_matrix_builder *builder) {
     if (!builder) {
         return;

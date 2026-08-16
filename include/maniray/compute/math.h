@@ -10,6 +10,7 @@
 #define MR_CLAMP(x, low, high) (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
 
 #define MR_ABS(a) ((a) > 0 ? (a) : -(a))
+#define MR_MOD(a, b) ((((a) % (b)) + (b)) % (b))
 
 mr_float mr_norm2_2d(mr_float x, mr_float y);
 mr_float mr_norm2(mr_float x, mr_float y, mr_float z);

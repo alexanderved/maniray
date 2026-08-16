@@ -285,10 +285,23 @@ int mr_fvm_perform_interpolation(mr_ocforest *forest, mr_index octree_idx, const
     return q_stencil_apply(forest, p, host_node_idx, local_idx, interp);
 }
 
+static mr_int descend_to_finest_neighbor(mr_ocforest *forest, mr_int node_idx, mr_direction dir[MR_ADJACENCY_VERTEX]) {
+    if (node_idx == MR_INVALID_INDEX) {
+        return MR_INVALID_INDEX;
+    }
+
+    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+    while (!(node->flags & MR_OCTREE_NODE_FLAG_LEAF)) {
+        node_idx = node->first_child + mr_direction_to_local_idx(dir);
+        node = mr_ocforest_get_node(forest, node_idx);
+    }
+
+    return node_idx;
+}
+
 static int find_ghost_cell_stencil(mr_ocforest *forest, mr_int node_idx, mr_direction dir[MR_ADJACENCY_VERTEX], mr_int stencil[Q_STENCIL_DIM]) {
-    mr_int center_stencil[Q_STENCIL_DIM] = { MR_INVALID_INDEX, node_idx, MR_INVALID_INDEX };
-    mr_int close_node_idx = MR_INVALID_INDEX;
-    mr_int far_node_idx = MR_INVALID_INDEX;
+    mr_int full_stencil[Q_STENCIL_DIM + 1] = { MR_INVALID_INDEX, node_idx, MR_INVALID_INDEX, MR_INVALID_INDEX };
+    mr_int stencil_shift = 0;
 
     mr_direction reflected_dir[] = {
         mr_direction_reflect(dir[0]),
@@ -296,36 +309,37 @@ static int find_ghost_cell_stencil(mr_ocforest *forest, mr_int node_idx, mr_dire
         mr_direction_reflect(dir[2]),
     };
 
-    center_stencil[0] = mr_octree_find_vertex_neighbor(forest, node_idx, dir);
-    center_stencil[2] = mr_octree_find_vertex_neighbor(forest, node_idx, reflected_dir);
+    full_stencil[0] = mr_octree_find_vertex_neighbor(forest, node_idx, dir);
+    full_stencil[2] = mr_octree_find_vertex_neighbor(forest, node_idx, reflected_dir);
 
-    if (center_stencil[0] == MR_INVALID_INDEX) {
-        far_node_idx = mr_octree_find_vertex_neighbor(forest, center_stencil[2], reflected_dir);
-        if (far_node_idx == MR_INVALID_INDEX) {
+    full_stencil[0] = descend_to_finest_neighbor(forest, full_stencil[0], reflected_dir);
+    full_stencil[2] = descend_to_finest_neighbor(forest, full_stencil[2], dir);
+
+    if (full_stencil[0] == MR_INVALID_INDEX && full_stencil[2] == MR_INVALID_INDEX) {
+        return MR_FAILURE;
+    }
+
+    if (full_stencil[0] == MR_INVALID_INDEX) {
+        full_stencil[3] = mr_octree_find_vertex_neighbor(forest, full_stencil[2], reflected_dir);
+        if (full_stencil[3] == MR_INVALID_INDEX) {
             return MR_FAILURE;
         }
 
-        stencil[0] = center_stencil[1];
-        stencil[1] = center_stencil[2];
-        stencil[2] = far_node_idx;
-
-        return MR_SUCCESS;
-    } else if (center_stencil[2] == MR_INVALID_INDEX) {
-        close_node_idx = mr_octree_find_vertex_neighbor(forest, center_stencil[0], dir);
-        if (close_node_idx == MR_INVALID_INDEX) {
+        full_stencil[3] = descend_to_finest_neighbor(forest, full_stencil[3], dir);
+        stencil_shift = 1;
+    } else if (full_stencil[2] == MR_INVALID_INDEX) {
+        full_stencil[3] = mr_octree_find_vertex_neighbor(forest, full_stencil[0], dir);
+        if (full_stencil[3] == MR_INVALID_INDEX) {
             return MR_FAILURE;
         }
 
-        stencil[0] = close_node_idx;
-        stencil[1] = center_stencil[0];
-        stencil[2] = center_stencil[1];
-
-        return MR_SUCCESS;
+        full_stencil[3] = descend_to_finest_neighbor(forest, full_stencil[3], reflected_dir);
+        stencil_shift = 1;
     }
     
-    stencil[0] = center_stencil[0];
-    stencil[1] = center_stencil[1];
-    stencil[2] = center_stencil[2];
+    stencil[0] = full_stencil[MR_MOD(stencil_shift, Q_STENCIL_DIM)];
+    stencil[1] = full_stencil[MR_MOD(stencil_shift + 1, Q_STENCIL_DIM)];
+    stencil[2] = full_stencil[MR_MOD(stencil_shift + 2, Q_STENCIL_DIM)];
 
     return MR_SUCCESS;
 }
