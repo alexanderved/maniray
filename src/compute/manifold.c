@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <string.h>
 
 #include "maniray/compute/manifold.h"
@@ -9,10 +10,6 @@ mr_float mr_chart_euclidean_metric(const mr_chart *chart, const mr_float *p, siz
     MR_UNUSED(p);
 
     return i == j ? 1.0f : 0.0f;
-}
-
-void mr_chart_default_dtor(mr_chart_desc *chart) {
-    free(chart->userdata);
 }
 
 mr_float mr_inner_product(const mr_manifold *manifold, size_t chart_idx, const mr_float *p, const mr_float *v1, const mr_float *v2) {
@@ -62,7 +59,23 @@ mr_transition_desc mr_transition_desc_create_empty() {
     return (mr_transition_desc) { .domain = mr_transition_domain_empty, .fn = mr_transition_map_empty };
 }
 
-mr_manifold *mr_manifold_create(size_t dim, size_t nb_charts, const mr_chart_desc *charts, const mr_transition_desc *transitions) {
+mr_manifold *mr_manifold_create(
+    size_t dim,
+    size_t nb_charts,
+    const mr_chart_desc *charts,
+    const mr_transition_desc *transitions
+) {
+    return mr_manifold_create_with_userdata(dim, nb_charts, charts, transitions, NULL, mr_manifold_userdata_noop_dtor);
+}
+
+mr_manifold *mr_manifold_create_with_userdata(
+    size_t dim,
+    size_t nb_charts,
+    const mr_chart_desc *charts,
+    const mr_transition_desc *transitions,
+    void *userdata,
+    mr_manifold_userdata_dtor_fn dtor
+) {
     mr_manifold *manifold = xmalloc(sizeof(mr_manifold));
 
     manifold->dim = dim;
@@ -74,25 +87,23 @@ mr_manifold *mr_manifold_create(size_t dim, size_t nb_charts, const mr_chart_des
             .bounds = charts[i].bounds,
             .period = charts[i].period,
             .metric = charts[i].metric ? charts[i].metric : mr_chart_euclidean_metric,
-            .userdata = charts[i].userdata,
-            .dtor = charts[i].dtor ? charts[i].dtor : mr_chart_default_dtor,
+            .inv_metric = !charts[i].metric && !charts[i].inv_metric ? mr_chart_euclidean_metric : charts[i].inv_metric,
         };
     }
 
     manifold->transitions = xcalloc(nb_charts * nb_charts, sizeof(mr_transition_desc));
     memcpy(manifold->transitions, transitions, nb_charts * nb_charts * sizeof(mr_transition_desc));
 
+    manifold->userdata = userdata;
+    manifold->dtor = dtor ? dtor : mr_manifold_userdata_default_dtor;
+
     return manifold;
 }
 
 void mr_manifold_destroy(mr_manifold *manifold) {
+    manifold->dtor(manifold->userdata);
+
     free(manifold->transitions);
-    
-    mr_chart_desc *chart = NULL;
-    for (size_t i = 0; i < manifold->nb_charts; ++i) {
-        chart = &manifold->charts[i];
-        chart->dtor(chart);
-    }
     free(manifold->charts);
 
     free(manifold);
@@ -102,11 +113,20 @@ static mr_chart mr_manifold_get_chart(const mr_manifold *manifold, size_t chart_
     mr_chart_desc *desc = &manifold->charts[chart_idx];
     return (mr_chart) {
         .manifold = manifold,
+        .idx = chart_idx,
         .bounds = desc->bounds,
         .period = desc->period,
         .metric = desc->metric,
-        .userdata = desc->userdata,
+        .inv_metric = desc->inv_metric,
     };
+}
+
+void mr_manifold_userdata_default_dtor(void *userdata) {
+    free(userdata);
+}
+
+void mr_manifold_userdata_noop_dtor(void *userdata) {
+    MR_UNUSED(userdata);
 }
 
 #define MAX_STACK_ARR_SIZE 4
@@ -118,6 +138,10 @@ static mr_chart mr_manifold_get_chart(const mr_manifold *manifold, size_t chart_
 #define TEMP_FREE(ptr, size) if (size > MAX_STACK_ARR_SIZE) free(ptr)
 
 bool mr_manifold_is_in_bounds(const mr_manifold *manifold, size_t chart_idx, const mr_float *p) {
+    if (!manifold || chart_idx >= manifold->nb_charts || !p) {
+        return false;
+    }
+
     mr_chart chart = mr_manifold_get_chart(manifold, chart_idx);
 
     TEMP_ALLOC(wp, mr_float, manifold->dim);
@@ -130,6 +154,10 @@ bool mr_manifold_is_in_bounds(const mr_manifold *manifold, size_t chart_idx, con
 }
 
 void mr_manifold_periodic_wrap(const mr_manifold *manifold, size_t chart_idx, mr_float *wp, const mr_float *p) {
+    if (!manifold || chart_idx >= manifold->nb_charts || !p || !wp) {
+        return;
+    }
+
     mr_chart chart = mr_manifold_get_chart(manifold, chart_idx);
     if (chart.period) {
         chart.period(&chart, wp, p);
@@ -139,6 +167,10 @@ void mr_manifold_periodic_wrap(const mr_manifold *manifold, size_t chart_idx, mr
 }
 
 mr_float mr_manifold_metric(const mr_manifold *manifold, size_t chart_idx, const mr_float *p, size_t i, size_t j) {
+    if (!manifold || chart_idx >= manifold->nb_charts || !p) {
+        return 0.0f;
+    }
+
     mr_chart chart = mr_manifold_get_chart(manifold, chart_idx);
 
     TEMP_ALLOC(wp, mr_float, manifold->dim);
@@ -150,7 +182,28 @@ mr_float mr_manifold_metric(const mr_manifold *manifold, size_t chart_idx, const
     return res;
 }
 
+mr_float mr_manifold_inv_metric(const mr_manifold *manifold, size_t chart_idx, const mr_float *p, size_t i, size_t j) {
+    if (!manifold || chart_idx >= manifold->nb_charts || !p) {
+        return 0.0f;
+    }
+    assert(manifold->charts[chart_idx].inv_metric);
+
+    mr_chart chart = mr_manifold_get_chart(manifold, chart_idx);
+
+    TEMP_ALLOC(wp, mr_float, manifold->dim);
+    mr_manifold_periodic_wrap(manifold, chart_idx, wp, p);
+
+    mr_float res = chart.inv_metric(&chart, wp, i, j);
+    TEMP_FREE(wp, manifold->dim);
+
+    return res;
+}
+
 int mr_manifold_transition(const mr_manifold *manifold, size_t i, size_t j, mr_float *p_out, const mr_float *p_in) {
+    if (!manifold || i >= manifold->nb_charts || j >= manifold->nb_charts || !p_in || !p_out) {
+        return MR_FAILURE;
+    }
+
     mr_chart src = mr_manifold_get_chart(manifold, i);
     mr_chart dst = mr_manifold_get_chart(manifold, j);
 

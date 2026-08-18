@@ -13,6 +13,7 @@
 #include "maniray/compute/octree.h"
 #include "maniray/compute/fvm/grid.h"
 #include "maniray/compute/fvm/interpolation.h"
+#include "maniray/compute/fvm/poisson.h"
 
 static bool chart_0_bounds(const mr_chart *chart, const mr_float *p) {
     MR_UNUSED(chart);
@@ -103,23 +104,28 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
             .dim = 8.0f,
         },
     };
-    mr_ocforest *forest = mr_ocforest_create(manifold, descs, NB_ROOTS, (size_t[1]) { sizeof(mr_discretization_data) }, 1);
+
+    mr_fvm_poisson *poisson = mr_fvm_poisson_create(manifold, descs, NB_ROOTS, NULL);
+    mr_ocforest *forest = poisson->forest;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
 
-    for (size_t i = 0; i < 2; ++i) {
+    for (size_t i = 0; i < 3; ++i) {
         mr_octree_refine_all(forest, 0);
     }
 
     mr_float p[3] = { 0.5f, 0.5f, -0.5f };
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, p), false);
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false);
+    /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false); */
     /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false);
     mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
-    mr_octree_balance(forest, 0); */
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false); */
+    mr_octree_balance(forest, 0);
+
+    mr_octree_leaves_apply(forest, 0, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(setup_boundary, NULL), false);
+    mr_fvm_poisson_build_discretization_matrix(poisson);
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
@@ -162,7 +168,6 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     // mr_fvm_fit_grids_to_charts(forest);
-    // mr_octree_leaves_apply(forest, 0, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(setup_boundary, NULL), false);
     // mr_fvm_connect_overset_grids(forest);
 
     clock_gettime(CLOCK_MONOTONIC, &end);

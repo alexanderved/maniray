@@ -134,7 +134,7 @@ static bool is_valid_interior_node(mr_ocforest *forest, mr_int idx) {
         }
 
         for (mr_int local_idx = 0; local_idx < MR_OCTREE_NB_CHILDREN; ++local_idx) {
-            if ((local_idx >> mr_direction_get_axis(dir) & 1) == mr_direction_get_sign(dir)) {
+            if (mr_is_local_idx_face_adjacent(local_idx, dir)) {
                 continue;
             }
 
@@ -387,7 +387,7 @@ void mr_fvm_connect_overset_grids(mr_ocforest *forest) {
             mr_octree_apply_cb_create(mark_required_nodes, NULL),
             false
         );
-    } 
+    }
 
     for (mr_index octree_idx = 0; (size_t)octree_idx < forest->nb_roots; ++octree_idx) {
         mr_octree_leaves_apply(

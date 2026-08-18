@@ -1,5 +1,5 @@
-#ifndef _MR_FVM_GENERAL_H
-#define _MR_FVM_GENERAL_H
+#ifndef _MR_FVM_GRID_H
+#define _MR_FVM_GRID_H
 
 #include "maniray/utils/types.h"
 #include "maniray/compute/octree.h"
@@ -32,4 +32,4 @@ typedef struct mr_discretization_data {
 void mr_fvm_fit_grids_to_charts(mr_ocforest *forest);
 void mr_fvm_connect_overset_grids(mr_ocforest *forest);
 
-#endif // _MR_FVM_GENERAL_H
+#endif // _MR_FVM_GRID_H

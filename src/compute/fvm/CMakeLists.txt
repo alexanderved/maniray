@@ -1,3 +1,4 @@
 target_sources(maniray PRIVATE grid.c
     interpolation.c
-    poisson.c)
+    poisson.c
+    cell.c)

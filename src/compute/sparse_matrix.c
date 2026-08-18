@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <string.h>
 
 #include "maniray/compute/sparse_matrix.h"
@@ -114,6 +115,7 @@ void mr_sparse_matrix_builder_add_row(mr_sparse_matrix_builder *builder, mr_spar
     if (!builder || !row || builder->nb_rows == builder->dim) {
         return;
     }
+    assert(row->len != 0);
 
     size_t old_nb_cols = builder->nb_cols;
     builder->nb_cols += row->len;
