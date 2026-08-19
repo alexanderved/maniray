@@ -22,8 +22,9 @@
 #define MR_OCTREE_FLAG_PERIODIC_Y (1 << MR_AXIS_Y)
 #define MR_OCTREE_FLAG_PERIODIC_Z (1 << MR_AXIS_Z)
 
-#define MR_OCTREE_NODE_NB_MAIN_FIELDS 1
+#define MR_OCTREE_NODE_NB_MAIN_FIELDS 2
 #define MR_OCTREE_NODE_FIELD 0
+#define MR_OCTREE_NODE_CONNECTION_FIELD 1
 
 typedef struct mr_octree_node {
     mr_bitfield flags;
@@ -40,6 +41,11 @@ typedef struct mr_octree_node {
     mr_float value;
     mr_float gradient[3];
 } mr_octree_node;
+
+typedef struct mr_octree_node_connection {
+    mr_int local_idx;
+    mr_int external_neighbors[MR_NB_AXES];
+} mr_octree_node_connection;
 
 typedef struct mr_octree_root {
     mr_bitfield flags;
@@ -105,6 +111,9 @@ size_t mr_ocforest_count_leaves(mr_ocforest *forest);
 
 mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx);
 mr_octree_node *mr_ocforest_get_node_array(mr_ocforest *forest);
+
+mr_octree_node_connection *mr_ocforest_get_node_connection(mr_ocforest *forest, mr_int idx);
+mr_octree_node_connection *mr_ocforest_get_node_connection_array(mr_ocforest *forest);
 
 void *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field);
 void *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field);

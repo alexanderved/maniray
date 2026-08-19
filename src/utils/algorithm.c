@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <string.h>
 
 #include "maniray/utils/algorithm.h"
@@ -39,6 +40,9 @@ void mr_generic_array_insert(
     size_t size,
     mr_index pos
 ) {
+    assert(arr);
+    assert(value);
+
     mr_index offset = pos * size;
     char *ptr = (char *)arr + offset;
 

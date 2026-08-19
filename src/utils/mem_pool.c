@@ -1,8 +1,8 @@
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
 #include <stdalign.h>
-#include <assert.h>
 
 #include "maniray/compute/math.h"
 #include "maniray/utils/mem_pool.h"
@@ -40,10 +40,6 @@ static bool free_block_list_is_empty(free_block_list *list) {
 }
 
 static free_block *find_insert_location(free_block_list *list, mr_index idx) {
-    if (!list || !list->first_free_block) {
-        return NULL;
-    }
-
     free_block *b = list->first_free_block;
     while (b->next_block && b->next_block->idx < idx) {
         b = b->next_block;
@@ -67,10 +63,6 @@ static free_block *alloc_new_block(mr_index idx, size_t len) {
 }
 
 static void free_block_list_insert(free_block_list *list, mr_index idx) {
-    if (!list) {
-        return;
-    }
-
     free_block *loc = find_insert_location(list, idx);
     if (!loc) {
         free_block *n = list->first_free_block;
@@ -117,10 +109,6 @@ static void free_block_list_insert(free_block_list *list, mr_index idx) {
 }
 
 static mr_index free_block_list_remove(free_block_list *list, mr_isize len) {
-    if (!list) {
-        return MR_INVALID_INDEX;
-    }
-
     free_block *prev = NULL;
     free_block *block = list->first_free_block;
     while (block && block->len < len) {
@@ -158,6 +146,9 @@ static mr_index free_block_list_remove(free_block_list *list, mr_isize len) {
 }
 
 mr_mem_pool *mr_mem_pool_create(size_t block_sizes[], size_t nb_types) {
+    assert(block_sizes);
+    assert(nb_types > 0);
+
     mr_mem_pool *pool = xmalloc(sizeof(mr_mem_pool));
 
     pool->capacity = 0;
@@ -197,13 +188,13 @@ void mr_mem_pool_destroy(mr_mem_pool *pool) {
 }
 
 size_t mr_mem_pool_capacity(mr_mem_pool *pool) {
-    return pool ? pool->capacity : 0;
+    assert(pool);
+
+    return pool->capacity;
 }
 
 size_t mr_mem_pool_len_bound(mr_mem_pool *pool) {
-    if (!pool) {
-        return 0;
-    }
+    assert(pool);
 
     free_block *last = pool->free_blocks.last_free_block;
     if (last && last->idx + last->len == (mr_isize)pool->capacity) {
@@ -277,6 +268,10 @@ static size_t valid_arr_cap(size_t cap) {
 
 static size_t size_to_aligned_cap(size_t size) {
     size_t mod_size = size % MAX_ALIGNMENT;
+    if (mod_size == 0) {
+        return 1;
+    }
+
     return MAX_ALIGNMENT / mod_size - (MAX_ALIGNMENT % mod_size == 0) + 1;
 }
 
@@ -340,9 +335,8 @@ mr_index mr_mem_pool_alloc(mr_mem_pool *pool) {
 }
 
 mr_index mr_mem_pool_alloc_many(mr_mem_pool *pool, size_t nb_elems) {
-    if (!pool || nb_elems == 0) {
-        return MR_INVALID_INDEX;
-    }
+    assert(pool);
+    assert(nb_elems != 0);
 
     mr_index idx;
     while (true) {
@@ -373,18 +367,17 @@ mr_index mr_mem_pool_alloc_many(mr_mem_pool *pool, size_t nb_elems) {
 }
 
 void mr_mem_pool_remove(mr_mem_pool *pool, mr_index idx) {
-    if (!mr_mem_pool_is_block_accessible(pool, idx)) {
-        return;
-    }
+    assert(pool);
+    assert(mr_mem_pool_is_block_accessible(pool, idx));
 
     change_element_validity(pool, idx, false);
     free_block_list_insert(&pool->free_blocks, idx);
 }
 
 void *mr_mem_pool_ptr(mr_mem_pool *pool, mr_index field, mr_index idx) {
-    if (!pool || !mr_mem_pool_is_block_accessible(pool, idx) || (size_t)field >= pool->nb_types) {
-        return NULL;
-    }
+    assert(pool);
+    assert((size_t)field < pool->nb_types);
+    assert(mr_mem_pool_is_block_accessible(pool, idx));
 
     mr_index outer_idx = pool->offsets[field] * pool->capacity;
     mr_index inner_idx = idx * get_block_size(pool, field);
@@ -393,9 +386,8 @@ void *mr_mem_pool_ptr(mr_mem_pool *pool, mr_index field, mr_index idx) {
 }
 
 void *mr_mem_pool_array_ptr(mr_mem_pool *pool, mr_index field) {
-    if (!pool || (size_t)field >= pool->nb_types) {
-        return NULL;
-    }
+    assert(pool);
+    assert((size_t)field < pool->nb_types);
 
     return pool->data + pool->offsets[field] * pool->capacity;
 }
