@@ -31,6 +31,6 @@ void mr_fvm_poisson_destroy(mr_fvm_poisson *poisson);
 mr_ocforest *mr_fvm_poisson_get_ocforest(mr_fvm_poisson *poisson);
 
 int mr_fvm_poisson_build_discretization_matrix(mr_fvm_poisson *poisson);
-int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson)
+int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson);
 
 #endif // _MR_FVM_POISSON_H
