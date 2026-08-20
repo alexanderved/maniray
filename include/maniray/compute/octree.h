@@ -69,33 +69,8 @@ typedef struct mr_ocforest {
     mr_mem_pool *nodes;
 } mr_ocforest;
 
-typedef int (*mr_octree_apply_fn)(mr_ocforest *forest, mr_int node_idx, void *userdata);
-typedef struct mr_octree_apply_cb {
-    mr_octree_apply_fn fn;
-    void *userdata;
-} mr_octree_apply_cb;
-
-static inline mr_octree_apply_cb mr_octree_apply_cb_create(mr_octree_apply_fn fn, void *userdata) {
-    return (mr_octree_apply_cb) { fn, userdata };
-}
-
-static inline mr_octree_apply_cb mr_octree_apply_cb_null() {
-    return (mr_octree_apply_cb) { NULL, NULL };
-}
-
-typedef bool (*mr_octree_cond_fn)(mr_ocforest *forest, mr_int node_idx, void *userdata);
-typedef struct mr_octree_cond_cb {
-    mr_octree_cond_fn fn;
-    void *userdata;
-} mr_octree_cond_cb;
-
-static inline mr_octree_cond_cb mr_octree_cond_cb_create(mr_octree_cond_fn fn, void *userdata) {
-    return (mr_octree_cond_cb) { fn, userdata };
-}
-
-static inline mr_octree_cond_cb mr_octree_cond_cb_null() {
-    return (mr_octree_cond_cb) { NULL, NULL };
-}
+MR_DEFINE_CALLBACK(mr_octree_apply, int, mr_ocforest *forest, mr_int node_idx)
+MR_DEFINE_CALLBACK(mr_octree_cond, int, mr_ocforest *forest, mr_int node_idx)
 
 mr_ocforest *mr_ocforest_create(
     mr_manifold *manifold,
