@@ -8,8 +8,11 @@
 #define MR_OCTREE_NB_CHILDREN 8
 #define MR_OCTREE_MAX_LEVEL 6
 
-#if MR_OCTREE_MAX_LEVEL >= 10
-#line 8
+#define MR_OCTREE_NODE_BLOCK_DIM 4
+#define MR_OCTREE_NB_CELLS_IN_BLOCK 64
+
+#if MR_OCTREE_MAX_LEVEL > 6
+#line 9
 #error "The height of the octree is too large"
 #endif
 
@@ -24,6 +27,17 @@
 #define MR_OCTREE_NODE_NB_MAIN_FIELDS 2
 #define MR_OCTREE_NODE_FIELD 0
 #define MR_OCTREE_NODE_CONNECTION_FIELD 1
+
+#define MR_OCTREE_CELL_NB_MAIN_FIELDS 1
+#define MR_OCTREE_CELL_FIELD 0
+
+typedef struct mr_octree_cell {
+    mr_int parent;
+
+    mr_uint chart_idx;
+    mr_float x, y, z;
+    mr_float dim;
+} mr_octree_cell;
 
 typedef struct mr_octree_node {
     mr_bitfield flags;
@@ -66,22 +80,26 @@ typedef struct mr_ocforest {
     mr_octree_root *roots;
 
     mr_mem_pool *nodes;
+    mr_mem_pool *cells;
 } mr_ocforest;
 
-MR_DEFINE_CALLBACK(mr_octree_apply, int, mr_ocforest *forest, mr_int node_idx)
-MR_DEFINE_CALLBACK(mr_octree_cond, bool, mr_ocforest *forest, mr_int node_idx)
+MR_DEFINE_CALLBACK(mr_octree_apply, int, mr_ocforest *forest, mr_int idx)
+MR_DEFINE_CALLBACK(mr_octree_cond, bool, mr_ocforest *forest, mr_int idx)
 
 mr_ocforest *mr_ocforest_create(
     mr_manifold *manifold,
     mr_octree_root_desc roots[],
     size_t nb_roots,
-    size_t extra_fields[],
-    size_t nb_extra_fields
+    size_t cell_extra_fields[],
+    size_t nb_cell_extra_fields
 );
 void mr_ocforest_destroy(mr_ocforest *forest);
 
-size_t mr_ocforest_size(mr_ocforest *forest);
+size_t mr_ocforest_nb_nodes_upper_bound(mr_ocforest *forest);
+size_t mr_ocforest_nb_cells_upper_bound(mr_ocforest *forest);
+
 size_t mr_ocforest_count_leaves(mr_ocforest *forest);
+size_t mr_ocforest_count_cells(mr_ocforest *forest);
 
 mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx);
 mr_octree_node *mr_ocforest_get_node_array(mr_ocforest *forest);
@@ -89,38 +107,27 @@ mr_octree_node *mr_ocforest_get_node_array(mr_ocforest *forest);
 mr_octree_node_connection *mr_ocforest_get_node_connection(mr_ocforest *forest, mr_int idx);
 mr_octree_node_connection *mr_ocforest_get_node_connection_array(mr_ocforest *forest);
 
-void *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field);
-void *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field);
+mr_octree_cell *mr_ocforest_get_cell(mr_ocforest *forest, mr_int idx);
+mr_octree_cell *mr_ocforest_get_cell_array(mr_ocforest *forest);
 
-mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int idx);
-mr_int mr_ocforest_find_node_with_code(mr_ocforest *forest, mr_int code);
+void *mr_ocforest_get_cell_extra(mr_ocforest *forest, mr_int idx, mr_int field);
+void *mr_ocforest_get_cell_extra_array(mr_ocforest *forest, mr_int field);
 
-int mr_octree_leaves_apply(
-    mr_ocforest *forest,
-    mr_index octree_idx,
-    mr_octree_cond_cb filter,
-    mr_octree_apply_cb apply,
-    bool recursive
-);
+mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int cell_idx);
+mr_int mr_ocforest_find_cell_with_code(mr_ocforest *forest, mr_int code);
 
-void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]);
-mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, const mr_float p[3]);
+int mr_octree_leaves_apply(mr_ocforest *forest, mr_index octree_idx, mr_octree_apply_cb apply);
+int mr_octree_cells_apply(mr_ocforest *forest, mr_index octree_idx, mr_octree_apply_cb apply);
 
-mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir);
-mr_int mr_octree_find_edge_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_EDGE]);
-mr_int mr_octree_find_vertex_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_VERTEX]);
+void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float p[MR_NB_AXES]);
+mr_int mr_octree_locate_point_in_leaf(mr_ocforest *forest, mr_index octree_idx, const mr_float p[MR_NB_AXES]);
+mr_int mr_octree_locate_point_in_cell(mr_ocforest *forest, mr_index octree_idx, const mr_float p[MR_NB_AXES]);
 
-void mr_octree_activate(mr_ocforest *forest, mr_index octree_idx, mr_octree_cond_cb cond);
-void mr_octree_activate_all(mr_ocforest *forest, mr_index octree_idx);
+mr_int mr_octree_find_face_neighbor_node(mr_ocforest *forest, mr_int idx, mr_direction dir);
+mr_int mr_octree_find_face_neighbor_cell(mr_ocforest *forest, mr_int idx, mr_direction dir);
 
-void mr_octree_refine(
-    mr_ocforest *forest,
-    mr_index octree_idx,
-    mr_octree_cond_cb filter,
-    mr_octree_cond_cb cond,
-    bool recursive
-);
-void mr_octree_refine_all(mr_ocforest *forest, mr_index octree_idx);
+void mr_octree_refine(mr_ocforest *forest, mr_index octree_idx, mr_octree_cond_cb cond, bool recursive);
+void mr_octree_refine_all(mr_ocforest *forest, mr_index octree_idx, size_t nb_repeats);
 
 void mr_octree_balance(mr_ocforest *forest, mr_index octree_idx);
 

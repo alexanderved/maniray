@@ -9,12 +9,23 @@
 #include "maniray/utils/xmalloc.h"
 #include "maniray/utils/misc.h"
 
+static void calculate_cell_center(mr_int local_idx, mr_float node_dim, mr_float node_center[], mr_float cell_center[]) {
+    mr_float offset_size = node_dim / MR_OCTREE_NODE_BLOCK_DIM / 2.0f;
+    for (size_t i = 0; i < MR_NB_AXES; ++i) {
+        mr_int offset_sign = (local_idx >> (i * 2 + 1) & 1) * 2 - 1;
+        mr_int offset_abs = (local_idx >> (i * 2) & 1) * 2 + 1;
+        mr_int offset_step = offset_sign * offset_abs;
+
+        cell_center[i] = node_center[i] + offset_size * offset_step;
+    }
+}
+
 mr_ocforest *mr_ocforest_create(
     mr_manifold *manifold,
     mr_octree_root_desc roots[],
     size_t nb_roots,
-    size_t extra_fields[],
-    size_t nb_extra_fields
+    size_t cell_extra_fields[],
+    size_t nb_cell_extra_fields
 ) {
     mr_ocforest *forest = xmalloc(sizeof(mr_ocforest));
 
@@ -22,26 +33,29 @@ mr_ocforest *mr_ocforest_create(
     forest->nb_roots = nb_roots;
     forest->roots = xmalloc(nb_roots * sizeof(mr_octree_root));
 
-    size_t nb_fields = MR_OCTREE_NODE_NB_MAIN_FIELDS + nb_extra_fields;
+    forest->nodes = mr_mem_pool_create(
+        (size_t[]) { sizeof(mr_octree_node), sizeof(mr_octree_node_connection) },
+        MR_OCTREE_NODE_NB_MAIN_FIELDS
+    );
+
+    size_t nb_fields = MR_OCTREE_CELL_NB_MAIN_FIELDS + nb_cell_extra_fields;
     size_t *field_sizes = xmalloc(nb_fields * sizeof(size_t));
 
-    field_sizes[0] = sizeof(mr_octree_node);
-    field_sizes[1] = sizeof(mr_octree_node_connection);
-    memcpy(field_sizes + MR_OCTREE_NODE_NB_MAIN_FIELDS, extra_fields, nb_extra_fields * sizeof(size_t));
+    field_sizes[0] = sizeof(mr_octree_cell);
+    memcpy(field_sizes + MR_OCTREE_CELL_NB_MAIN_FIELDS, cell_extra_fields, nb_cell_extra_fields * sizeof(size_t));
 
-    forest->nodes = mr_mem_pool_create(field_sizes, nb_fields);
+    forest->cells = mr_mem_pool_create(field_sizes, nb_fields);
     free(field_sizes);
 
-    mr_int node_idx = (mr_int)mr_mem_pool_alloc_many(forest->nodes, nb_roots);
-    if (node_idx == MR_INVALID_INDEX) {
-        mr_mem_pool_destroy(forest->nodes);
-        free(forest->roots);
-        free(forest);
+    mr_index index = mr_mem_pool_alloc_many(forest->nodes, nb_roots);
+    assert(index <= INT32_MAX && index + MR_OCTREE_NB_CHILDREN <= INT32_MAX);
 
-        return NULL;
+    mr_int node_idx = (mr_int)index;
+    if (node_idx == MR_INVALID_INDEX) {
+        goto failure;
     }
 
-    for (size_t i = 0; i < nb_roots; ++i) {
+    for (mr_int i = 0; (size_t)i < nb_roots; ++i) {
         forest->roots[i] = (mr_octree_root) {
             .flags = roots[i].flags,
             .node_idx = node_idx + i,
@@ -56,7 +70,7 @@ mr_ocforest *mr_ocforest_create(
             .y = roots[i].y,
             .z = roots[i].z,
             .dim = roots[i].dim,
-            .root = (mr_int)i,
+            .root = i,
             .parent = MR_INVALID_INDEX,
             .first_child = MR_INVALID_INDEX,
             .value = 0.0f,
@@ -68,9 +82,41 @@ mr_ocforest *mr_ocforest_create(
             .local_idx = MR_INVALID_INDEX,
             .external_neighbors = { MR_INVALID_INDEX, MR_INVALID_INDEX, MR_INVALID_INDEX },
         };
+
+        index = mr_mem_pool_alloc_many(forest->nodes, MR_OCTREE_NB_CELLS_IN_BLOCK);
+        assert(index <= INT32_MAX && index + MR_OCTREE_NB_CHILDREN <= INT32_MAX);
+
+        mr_int first_cell_idx = (mr_int)index;
+        if (first_cell_idx == MR_INVALID_INDEX) {
+            goto failure;
+        }
+
+        for (mr_int local_cell_idx = 0; local_cell_idx < MR_OCTREE_NB_CELLS_IN_BLOCK; ++local_cell_idx) {
+            mr_octree_cell *cell = mr_ocforest_get_cell(forest, first_cell_idx + local_cell_idx);
+
+            mr_float center[MR_NB_AXES] = { 0.0f };
+            calculate_cell_center(local_cell_idx, node->dim, (mr_float[]) { node->x, node->y, node->z }, center);
+
+            *cell = (mr_octree_cell) {
+                .chart_idx = roots[i].chart_idx,
+                .x = center[0],
+                .y = center[1],
+                .z = center[2],
+                .dim = roots[i].dim / MR_OCTREE_NODE_BLOCK_DIM,
+                .parent = node_idx + i,
+            };
+        }
     }
 
     return forest;
+
+failure:
+    mr_mem_pool_destroy(forest->cells);
+    mr_mem_pool_destroy(forest->nodes);
+    free(forest->roots);
+    free(forest);
+
+    return NULL;
 }
 
 void mr_ocforest_destroy(mr_ocforest *forest) {
@@ -78,13 +124,18 @@ void mr_ocforest_destroy(mr_ocforest *forest) {
         return;
     }
 
+    mr_mem_pool_destroy(forest->cells);
     mr_mem_pool_destroy(forest->nodes);
     free(forest->roots);
     free(forest);
 }
 
-size_t mr_ocforest_size(mr_ocforest *forest) {
+size_t mr_ocforest_nb_nodes_upper_bound(mr_ocforest *forest) {
     return forest ? mr_mem_pool_len_bound(forest->nodes) : 0;
+}
+
+size_t mr_ocforest_nb_cells_upper_bound(mr_ocforest *forest) {
+    return forest ? mr_mem_pool_len_bound(forest->cells) : 0;
 }
 
 static int leaves_counter(mr_ocforest *forest, mr_int node_idx, void *userdata) {
@@ -101,10 +152,14 @@ size_t mr_ocforest_count_leaves(mr_ocforest *forest) {
 
     size_t nb_leaves = 0;
     for (mr_index octree_idx = 0; (size_t)octree_idx < forest->nb_roots; ++octree_idx) {
-        mr_octree_leaves_apply(forest, octree_idx, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(leaves_counter, &nb_leaves), false);
+        mr_octree_leaves_apply(forest, octree_idx, mr_octree_apply_cb_create(leaves_counter, &nb_leaves));
     }
 
     return nb_leaves;
+}
+
+size_t mr_ocforest_count_cells(mr_ocforest *forest) {
+    return mr_ocforest_count_leaves(forest) * MR_OCTREE_NB_CELLS_IN_BLOCK;
 }
 
 mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx) {
@@ -131,16 +186,28 @@ mr_octree_node_connection *mr_ocforest_get_node_connection_array(mr_ocforest *fo
     return mr_mem_pool_array_ptr(forest->nodes, MR_OCTREE_NODE_CONNECTION_FIELD);
 }
 
-void *mr_ocforest_get_extra(mr_ocforest *forest, mr_int idx, mr_int field) {
+mr_octree_cell *mr_ocforest_get_cell(mr_ocforest *forest, mr_int idx) {
     assert(forest);
 
-    return mr_mem_pool_ptr(forest->nodes, MR_OCTREE_NODE_NB_MAIN_FIELDS + field, idx);
+    return mr_mem_pool_ptr(forest->cells, MR_OCTREE_CELL_FIELD, idx);
 }
 
-void *mr_ocforest_get_extra_array(mr_ocforest *forest, mr_int field) {
+mr_octree_cell *mr_ocforest_get_cell_array(mr_ocforest *forest) {
     assert(forest);
 
-    return mr_mem_pool_array_ptr(forest->nodes, MR_OCTREE_NODE_NB_MAIN_FIELDS + field);
+    return mr_mem_pool_array_ptr(forest->cells, MR_OCTREE_CELL_FIELD);
+}
+
+void *mr_ocforest_get_cell_extra(mr_ocforest *forest, mr_int idx, mr_int field) {
+    assert(forest);
+
+    return mr_mem_pool_ptr(forest->cells, MR_OCTREE_CELL_NB_MAIN_FIELDS + field, idx);
+}
+
+void *mr_ocforest_get_cell_extra_array(mr_ocforest *forest, mr_int field) {
+    assert(forest);
+
+    return mr_mem_pool_array_ptr(forest->cells, MR_OCTREE_CELL_NB_MAIN_FIELDS + field);
 }
 
 static void get_root_corner(mr_octree_node *root, mr_float coords[MR_NB_AXES]) {
@@ -151,20 +218,20 @@ static void get_root_corner(mr_octree_node *root, mr_float coords[MR_NB_AXES]) {
     coords[MR_AXIS_Z] = root->z - hdim;
 }
 
-static void get_node_int_coords(mr_ocforest *forest, mr_octree_node *node, mr_int coords[MR_NB_AXES]) {
+static void get_node_int_coords(mr_ocforest *forest, mr_octree_node *node, mr_octree_cell *cell, mr_int coords[MR_NB_AXES]) {
     mr_octree_node *root = mr_ocforest_get_node(forest, forest->roots[node->root].node_idx);
 
     mr_float root_coords[MR_NB_AXES] = { 0.0f };
     get_root_corner(root, root_coords);    
 
-    mr_float hdim = node->dim / 2.0f;
-    mr_float scale = (mr_float)(1 << MR_OCTREE_MAX_LEVEL) / root->dim;
+    mr_float hdim = cell->dim / 2.0f;
+    mr_float scale = (mr_float)(1 << (MR_OCTREE_MAX_LEVEL + 2)) / root->dim;
 
-    coords[MR_AXIS_X] = (mr_int)llround((node->x - root_coords[MR_AXIS_X] - hdim) * scale);
-    coords[MR_AXIS_Y] = (mr_int)llround((node->y - root_coords[MR_AXIS_Y] - hdim) * scale);
-    coords[MR_AXIS_Z] = (mr_int)llround((node->z - root_coords[MR_AXIS_Z] - hdim) * scale);
+    coords[MR_AXIS_X] = (mr_int)llround((cell->x - root_coords[MR_AXIS_X] - hdim) * scale);
+    coords[MR_AXIS_Y] = (mr_int)llround((cell->y - root_coords[MR_AXIS_Y] - hdim) * scale);
+    coords[MR_AXIS_Z] = (mr_int)llround((cell->z - root_coords[MR_AXIS_Z] - hdim) * scale);
 
-    mr_int max_value = (1 << MR_OCTREE_MAX_LEVEL) - 1;
+    mr_int max_value = (1 << (MR_OCTREE_MAX_LEVEL + 2)) - 1;
     coords[MR_AXIS_X] = MR_CLAMP(coords[MR_AXIS_X], 0, max_value);
     coords[MR_AXIS_Y] = MR_CLAMP(coords[MR_AXIS_Y], 0, max_value);
     coords[MR_AXIS_Z] = MR_CLAMP(coords[MR_AXIS_Z], 0, max_value);
@@ -181,15 +248,16 @@ static mr_int interleave_bits(mr_int ix, mr_int iy, mr_int iz, size_t bits) {
     return code;
 }
 
-mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int idx) {
+mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int cell_idx) {
     assert(forest);
-    assert(idx != MR_INVALID_INDEX);
-    assert(1 << (MR_INT_NB_BITS - MR_NB_AXES * MR_OCTREE_MAX_LEVEL - 1) > forest->nb_roots);
+    assert(cell_idx != MR_INVALID_INDEX);
+    assert(1 << (MR_INT_NB_BITS - MR_NB_AXES * (MR_OCTREE_MAX_LEVEL + 2) - 1) > forest->nb_roots);
 
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
 
     mr_int coords[MR_NB_AXES] = { 0 };
-    get_node_int_coords(forest, node, coords);
+    get_node_int_coords(forest, node, cell, coords);
 
     mr_int morton_code = interleave_bits(coords[MR_AXIS_X], coords[MR_AXIS_Y], coords[MR_AXIS_Z], MR_OCTREE_MAX_LEVEL);
     mr_int root_code = node->root << MR_NB_AXES * MR_OCTREE_MAX_LEVEL;
@@ -197,8 +265,8 @@ mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int idx) {
     return morton_code | root_code;
 }
 
-static mr_int extract_local_idx_from_code(mr_int code, mr_int level) {
-    return code >> MR_NB_AXES * (MR_OCTREE_MAX_LEVEL - level) & 0x7;
+static mr_int extract_local_idx(mr_int code, mr_int level) {
+    return code >> MR_NB_AXES * (MR_OCTREE_MAX_LEVEL + 2 - level) & 0x7;
 }
 
 mr_int mr_ocforest_find_node_with_code(mr_ocforest *forest, mr_int code) {
@@ -212,33 +280,23 @@ mr_int mr_ocforest_find_node_with_code(mr_ocforest *forest, mr_int code) {
 
     for (mr_int level = 1; level <= MR_OCTREE_MAX_LEVEL; ++level) {
         if (node->flags & MR_OCTREE_NODE_FLAG_LEAF) {
-            break;
+            return (extract_local_idx(code, level + 1) << MR_NB_AXES) + extract_local_idx(code, level + 2);
         }
 
-        node_idx = node->first_child + extract_local_idx_from_code(code, level);
+        node_idx = node->first_child + extract_local_idx(code, level);
         node = mr_ocforest_get_node(forest, node_idx);
     }
 
-    return node_idx;
+    return MR_INVALID_INDEX;
 }
 
-int mr_octree_leaves_apply(
-    mr_ocforest *forest,
-    mr_index octree_idx,
-    mr_octree_cond_cb filter,
-    mr_octree_apply_cb apply,
-    bool recursive
-) {
+static int mr_octree_leaves_apply_ext(mr_ocforest *forest, mr_index octree_idx, mr_octree_apply_cb apply, bool recursive) {
     assert(forest);
     assert((size_t)octree_idx < forest->nb_roots);
 
     mr_int root_idx = forest->roots[octree_idx].node_idx;
-    if (filter.fn && !filter.fn(forest, root_idx, filter.userdata)) {
-        return MR_SUCCESS;
-    }
-
     mr_octree_node *root = mr_ocforest_get_node(forest, root_idx);
-    if (root->first_child == MR_INVALID_INDEX) {
+    if (root->flags & MR_OCTREE_NODE_FLAG_LEAF) {
         apply.fn(forest, root_idx, apply.userdata);
 
         if (!recursive) {
@@ -269,11 +327,6 @@ int mr_octree_leaves_apply(
         }
 
         child_idx = parent->first_child + path[level];
-        if (filter.fn && !filter.fn(forest, child_idx, filter.userdata)) {
-            ++path[level];
-            continue;
-        }
-
         saved_flags = mr_ocforest_get_node(forest, child_idx)->flags;
         if (saved_flags & MR_OCTREE_NODE_FLAG_LEAF) {
             if (apply.fn(forest, child_idx, apply.userdata) == MR_FAILURE) {
@@ -293,7 +346,28 @@ int mr_octree_leaves_apply(
     return MR_SUCCESS;
 }
 
-void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float p[3]) {
+int mr_octree_leaves_apply(mr_ocforest *forest, mr_index octree_idx, mr_octree_apply_cb apply) {
+    return mr_octree_leaves_apply_ext(forest, octree_idx, apply, false);
+}
+
+static int apply_cells_in_leaf(mr_ocforest *forest, mr_int idx, void *userdata) {
+    mr_octree_apply_cb *cb = userdata;
+    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+
+    for (mr_int local_cell_idx = 0; local_cell_idx < MR_OCTREE_NB_CELLS_IN_BLOCK; ++local_cell_idx) {
+        if (cb->fn(forest, node->first_child + local_cell_idx, cb->userdata) != MR_SUCCESS) {
+            return MR_FAILURE;
+        }
+    }
+
+    return MR_SUCCESS;
+}
+
+int mr_octree_cells_apply(mr_ocforest *forest, mr_index octree_idx, mr_octree_apply_cb apply) {
+    return mr_octree_leaves_apply(forest, octree_idx, mr_octree_apply_cb_create(apply_cells_in_leaf, &apply));
+}
+
+void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float p[MR_NB_AXES]) {
     assert(forest);
     assert(p);
     assert((size_t)octree_idx < forest->nb_roots);
@@ -316,7 +390,7 @@ void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float 
     }
 }
 
-mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, const mr_float p[3]) {
+mr_int mr_octree_locate_point_in_leaf(mr_ocforest *forest, mr_index octree_idx, const mr_float p[MR_NB_AXES]) {
     assert(forest);
     assert(p);
     assert((size_t)octree_idx < forest->nb_roots);
@@ -334,7 +408,9 @@ mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, const mr
             break;
         }
 
-        child_idx = (mr_int)(wp[0] > node->x) | (mr_int)(wp[1] > node->y) << 1 | (mr_int)(wp[2] > node->z) << 2;
+        child_idx = (mr_int)(wp[0] > node->x)
+            | (mr_int)(wp[1] > node->y) << 1
+            | (mr_int)(wp[2] > node->z) << 2;
         idx = node->first_child + child_idx;
     }
 
@@ -343,6 +419,10 @@ mr_int mr_octree_locate_point(mr_ocforest *forest, mr_index octree_idx, const mr
     }
 
     return idx;
+}
+
+mr_int mr_octree_locate_point_in_cell(mr_ocforest *forest, mr_index octree_idx, const mr_float p[MR_NB_AXES]) {
+    // TODO
 }
 
 static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdata);
@@ -714,14 +794,11 @@ static int activate_leaf(mr_ocforest *forest, mr_int node_idx, void *userdata) {
     return MR_SUCCESS;
 }
 
-void mr_octree_activate(mr_ocforest *forest, mr_index octree_idx, mr_octree_cond_cb cond) {
-    mr_octree_leaves_apply(forest, octree_idx, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(activate_leaf, &cond), false);
-}
-
-void mr_octree_activate_all(mr_ocforest *forest, mr_index octree_idx) {
-    mr_octree_activate(forest, octree_idx, mr_octree_cond_cb_null());
-}
-
+/* 
+ * TODO:
+ * 1. Apply cond to cells in the node
+ * 2. Delete previous cells after init of new cells to make it possible to save previous data
+*/
 static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdata) {
     mr_octree_cond_cb *cond_ud = userdata;
     if (cond_ud && cond_ud->fn && !cond_ud->fn(forest, parent_idx, cond_ud->userdata)) {
@@ -757,8 +834,8 @@ static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdat
             .root = parent->root,
             .parent = parent_idx,
             .first_child = MR_INVALID_INDEX,
-            .value = parent->value,
-            .gradient = { parent->gradient[0], parent->gradient[1], parent->gradient[2] },
+            .value = 0.0f,
+            .gradient = { 0.0f },
         };
 
         mr_octree_node_connection *conn = mr_ocforest_get_node_connection(forest, first_child + i);
@@ -771,18 +848,14 @@ static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdat
     return MR_SUCCESS;
 }
 
-void mr_octree_refine(
-    mr_ocforest *forest,
-    mr_index octree_idx,
-    mr_octree_cond_cb filter,
-    mr_octree_cond_cb cond,
-    bool recursive
-) {
-    mr_octree_leaves_apply(forest, octree_idx, filter, mr_octree_apply_cb_create(insert_children, &cond), recursive);
+void mr_octree_refine(mr_ocforest *forest, mr_index octree_idx, mr_octree_cond_cb cond, bool recursive) {
+    mr_octree_leaves_apply_ext(forest, octree_idx, mr_octree_apply_cb_create(insert_children, &cond), recursive);
 }
 
-void mr_octree_refine_all(mr_ocforest *forest, mr_index octree_idx) {
-    mr_octree_refine(forest, octree_idx, mr_octree_cond_cb_null(), mr_octree_cond_cb_null(), false);
+void mr_octree_refine_all(mr_ocforest *forest, mr_index octree_idx, size_t nb_repeats) {
+    for (size_t i = 0; i < nb_repeats; ++i) {
+        mr_octree_refine(forest, octree_idx, mr_octree_cond_cb_null(), false);
+    }
 }
 
 typedef struct balance_userdata {
@@ -790,17 +863,14 @@ typedef struct balance_userdata {
     bool needs_repeat;
 } balance_userdata;
 
-static bool balance_filter(mr_ocforest *forest, mr_int node_idx, void *userdata) {
-    balance_userdata *balance_ud = userdata;
-    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
-
-    return node->level <= balance_ud->level;
-}
-
 static int balance_level(mr_ocforest *forest, mr_int node_idx, void *userdata) {
     balance_userdata *balance_ud = userdata;
 
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+    if (node->level > balance_ud->level) {
+        return MR_SUCCESS;
+    }
+
     if (node->flags & (MR_OCTREE_NODE_FLAG_UNBALANCED | MR_OCTREE_NODE_FLAG_LEAF) && node->level == balance_ud->level) {
         mr_uint refine_level = node->level - 1;
         refinement_info info = { refine_level, false, false };
@@ -859,14 +929,7 @@ void mr_octree_balance(mr_ocforest *forest, mr_index octree_idx) {
 
         do {
             userdata.needs_repeat = false;
-
-            mr_octree_leaves_apply(
-                forest,
-                octree_idx,
-                mr_octree_cond_cb_create(balance_filter, &userdata),
-                mr_octree_apply_cb_create(balance_level, &userdata),
-                false
-            );
+            mr_octree_leaves_apply(forest, octree_idx, mr_octree_apply_cb_create(balance_level, &userdata));
         } while (userdata.needs_repeat);
     }
 }
