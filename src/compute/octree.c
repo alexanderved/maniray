@@ -839,6 +839,8 @@ static int balance_level(mr_ocforest *forest, mr_int node_idx, void *userdata) {
         if (info.did_refine && info.did_update_level) {
             balance_ud->needs_repeat = true;
         }
+
+        node = mr_ocforest_get_node(forest, node_idx);
         node->flags &= ~MR_OCTREE_NODE_FLAG_UNBALANCED;
     }
 

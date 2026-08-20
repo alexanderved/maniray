@@ -203,7 +203,7 @@ vec4 draw_octree_slice(vec2 xy) {
 
     int enabled_charts = 0;
     vec3 chart_coords[MAX_NB_CHARTS];
-    
+
     enabled_charts |= convert_0(coords, chart_coords[0]);
     enabled_charts |= convert_1(coords, chart_coords[1]) << 1;
     enabled_charts |= convert_2(coords, chart_coords[2]) << 2;

@@ -1,7 +1,6 @@
 #ifndef _MR_OCTREE_H
 #define _MR_OCTREE_H
 
-#include "maniray/utils/types.h"
 #include "maniray/utils/mem_pool.h"
 #include "maniray/compute/manifold.h"
 #include "maniray/compute/navigation.h"
@@ -70,7 +69,7 @@ typedef struct mr_ocforest {
 } mr_ocforest;
 
 MR_DEFINE_CALLBACK(mr_octree_apply, int, mr_ocforest *forest, mr_int node_idx)
-MR_DEFINE_CALLBACK(mr_octree_cond, int, mr_ocforest *forest, mr_int node_idx)
+MR_DEFINE_CALLBACK(mr_octree_cond, bool, mr_ocforest *forest, mr_int node_idx)
 
 mr_ocforest *mr_ocforest_create(
     mr_manifold *manifold,
