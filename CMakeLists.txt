@@ -9,7 +9,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 find_package(glfw3 3.3 REQUIRED)
 find_package(OpenGL REQUIRED)
-set(LIBS m glfw OpenGL::GL GLAD)
+set(LIBS m glfw OpenGL::GL GLAD superlu)
+
+add_compile_options(-Wno-unused-result)
 
 add_subdirectory(external)
 add_subdirectory(src)
