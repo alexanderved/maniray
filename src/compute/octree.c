@@ -10,14 +10,15 @@
 #include "maniray/utils/misc.h"
 
 static void calculate_cell_center(mr_int local_idx, mr_float node_dim, mr_float node_center[], mr_float cell_center[]) {
-    mr_float offset_size = node_dim / MR_OCTREE_NODE_BLOCK_DIM / 2.0f;
-    for (size_t i = 0; i < MR_NB_AXES; ++i) {
-        mr_int offset_sign = (local_idx >> (i * 2 + 1) & 1) * 2 - 1;
-        mr_int offset_abs = (local_idx >> (i * 2) & 1) * 2 + 1;
-        mr_int offset_step = offset_sign * offset_abs;
+    mr_int i = local_idx & 0x3;
+    mr_int j = local_idx >> 2 & 0x3;
+    mr_int k = local_idx >> 4 & 0x3;
 
-        cell_center[i] = node_center[i] + offset_size * offset_step;
-    }
+    mr_float cell_dim = node_dim / MR_OCTREE_NODE_BLOCK_DIM;
+
+    cell_center[0] = node_center[0] + (i - 1.5) * cell_dim;
+    cell_center[1] = node_center[1] + (j - 1.5) * cell_dim;
+    cell_center[2] = node_center[2] + (k - 1.5) * cell_dim;
 }
 
 mr_ocforest *mr_ocforest_create(
@@ -83,13 +84,14 @@ mr_ocforest *mr_ocforest_create(
             .external_neighbors = { MR_INVALID_INDEX, MR_INVALID_INDEX, MR_INVALID_INDEX },
         };
 
-        index = mr_mem_pool_alloc_many(forest->nodes, MR_OCTREE_NB_CELLS_IN_BLOCK);
-        assert(index <= INT32_MAX && index + MR_OCTREE_NB_CHILDREN <= INT32_MAX);
+        index = mr_mem_pool_alloc_many(forest->cells, MR_OCTREE_NB_CELLS_IN_BLOCK);
+        assert(index <= INT32_MAX && index + MR_OCTREE_NB_CELLS_IN_BLOCK <= INT32_MAX);
 
         mr_int first_cell_idx = (mr_int)index;
         if (first_cell_idx == MR_INVALID_INDEX) {
             goto failure;
         }
+        node->first_child = first_cell_idx;
 
         for (mr_int local_cell_idx = 0; local_cell_idx < MR_OCTREE_NB_CELLS_IN_BLOCK; ++local_cell_idx) {
             mr_octree_cell *cell = mr_ocforest_get_cell(forest, first_cell_idx + local_cell_idx);
@@ -98,12 +100,12 @@ mr_ocforest *mr_ocforest_create(
             calculate_cell_center(local_cell_idx, node->dim, (mr_float[]) { node->x, node->y, node->z }, center);
 
             *cell = (mr_octree_cell) {
-                .chart_idx = roots[i].chart_idx,
+                .parent = node_idx + i,
+                .chart_idx = node->chart_idx,
                 .x = center[0],
                 .y = center[1],
                 .z = center[2],
-                .dim = roots[i].dim / MR_OCTREE_NODE_BLOCK_DIM,
-                .parent = node_idx + i,
+                .dim = node->dim / MR_OCTREE_NODE_BLOCK_DIM,
             };
         }
     }
@@ -269,7 +271,7 @@ static mr_int extract_local_idx(mr_int code, mr_int level) {
     return code >> MR_NB_AXES * (MR_OCTREE_MAX_LEVEL + 2 - level) & 0x7;
 }
 
-mr_int mr_ocforest_find_node_with_code(mr_ocforest *forest, mr_int code) {
+mr_int mr_ocforest_find_cell_with_code(mr_ocforest *forest, mr_int code) {
     assert(forest);
     assert(code != MR_INVALID_INDEX);
 
@@ -280,7 +282,9 @@ mr_int mr_ocforest_find_node_with_code(mr_ocforest *forest, mr_int code) {
 
     for (mr_int level = 1; level <= MR_OCTREE_MAX_LEVEL; ++level) {
         if (node->flags & MR_OCTREE_NODE_FLAG_LEAF) {
-            return (extract_local_idx(code, level + 1) << MR_NB_AXES) + extract_local_idx(code, level + 2);
+            return node->first_child
+                + (extract_local_idx(code, level + 1) << MR_NB_AXES)
+                + extract_local_idx(code, level + 2);
         }
 
         node_idx = node->first_child + extract_local_idx(code, level);
@@ -422,7 +426,36 @@ mr_int mr_octree_locate_point_in_leaf(mr_ocforest *forest, mr_index octree_idx, 
 }
 
 mr_int mr_octree_locate_point_in_cell(mr_ocforest *forest, mr_index octree_idx, const mr_float p[MR_NB_AXES]) {
-    // TODO
+    assert(forest);
+    assert(p);
+    assert((size_t)octree_idx < forest->nb_roots);
+
+    mr_float wp[3] = { p[0], p[1], p[2] };
+    mr_octree_periodic_wrap(forest, octree_idx, wp);
+
+    mr_int node_idx = mr_octree_locate_point_in_leaf(forest, octree_idx, wp);
+    if (node_idx == MR_INVALID_INDEX) {
+        return MR_INVALID_INDEX;
+    }
+
+    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+
+    mr_float hdim = node->dim / 2.0f;
+    mr_float cell_dim = node->dim / MR_OCTREE_NODE_BLOCK_DIM;
+
+    mr_int local_coords[] = {
+        (mr_int)floor((wp[0] - node->x + hdim) / cell_dim),
+        (mr_int)floor((wp[1] - node->y + hdim) / cell_dim),
+        (mr_int)floor((wp[2] - node->z + hdim) / cell_dim),
+    };
+
+    local_coords[0] = MR_CLAMP(local_coords[0], 0, 3);
+    local_coords[1] = MR_CLAMP(local_coords[1], 0, 3);
+    local_coords[2] = MR_CLAMP(local_coords[2], 0, 3);
+
+    mr_int local_idx = (local_coords[2] << 4) + (local_coords[1] << 2) + local_coords[0];
+
+    return node->first_child + local_idx;
 }
 
 static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdata);
@@ -557,30 +590,22 @@ static void reflect_path(
     }
 }
 
-typedef struct refinement_info {
-    const mr_uint expected_level;
-
-    bool did_refine;
-    bool did_update_level;
-} refinement_info;
-
 static mr_int descend_path(
     mr_ocforest *forest,
     mr_int node_idx,
     mr_int path[MR_OCTREE_MAX_LEVEL],
     mr_uint len,
-    refinement_info *info,
-    mr_uint max_level
+    bool do_refine,
+    mr_int expected_level
 ) {
     mr_int curr_idx = node_idx;
     mr_octree_node *node = NULL;
 
     while (len > 0) {
         node = mr_ocforest_get_node(forest, curr_idx);
-        if (info && node->flags & MR_OCTREE_NODE_FLAG_LEAF && node->level < max_level) {
+        if (do_refine && node->flags & MR_OCTREE_NODE_FLAG_LEAF && (mr_int)node->level < expected_level) {
             insert_children(forest, curr_idx, NULL);
             node = mr_ocforest_get_node(forest, curr_idx);
-            info->did_refine = true;
         }
 
         if (node->flags & MR_OCTREE_NODE_FLAG_LEAF) {
@@ -593,215 +618,226 @@ static mr_int descend_path(
     return curr_idx;
 }
 
-static mr_int mr_octree_find_face_neighbor_with_refine(
+static mr_int mr_octree_find_face_neighbor_node_with_refine(
     mr_ocforest *forest,
-    mr_int idx,
+    mr_int node_idx,
     mr_direction dir,
-    refinement_info *info
+    bool do_refine,
+    mr_int expected_level
 ) {
     assert(forest);
-    assert(idx != MR_INVALID_INDEX);
+    assert(node_idx != MR_INVALID_INDEX);
 
     bool cache_might_change = true;
-    mr_int nidx = get_cached_neighbor(forest, idx, dir, &cache_might_change);
-    if (nidx != MR_INVALID_INDEX && (!cache_might_change || !info)) {
+    mr_int nidx = get_cached_neighbor(forest, node_idx, dir, &cache_might_change);
+    if (nidx != MR_INVALID_INDEX && (!cache_might_change || !do_refine)) {
         return nidx;
     }
 
     mr_uint len = 0;
     mr_int path[MR_OCTREE_MAX_LEVEL] = { 0 };
-    mr_uint max_level = info ? info->expected_level : 0;
 
-    mr_int ancestor_idx = find_ancestor(forest, idx, &dir, MR_ADJACENCY_FACE, path, &len);
+    mr_int ancestor_idx = find_ancestor(forest, node_idx, &dir, MR_ADJACENCY_FACE, path, &len);
     if (ancestor_idx == MR_INVALID_INDEX) {
         return MR_INVALID_INDEX;
     }
 
-    if (info && len == 2) {
-        ++max_level;
-        info->did_update_level = true;
-    }
-
     reflect_path(&dir, MR_ADJACENCY_FACE, path, len);
-    nidx = descend_path(forest, ancestor_idx, path, len, info, max_level);
-    cache_neighbor(forest, idx, nidx, dir);
+    nidx = descend_path(forest, ancestor_idx, path, len, do_refine, expected_level);
+    cache_neighbor(forest, node_idx, nidx, dir);
 
     return nidx;
 }
 
-mr_int mr_octree_find_face_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir) {
-    return mr_octree_find_face_neighbor_with_refine(forest, idx, dir, NULL);
+mr_int mr_octree_find_face_neighbor_node(mr_ocforest *forest, mr_int idx, mr_direction dir) {
+    return mr_octree_find_face_neighbor_node_with_refine(forest, idx, dir, false, 0);
 }
 
-static int common_face(
-    mr_int local_idx,
-    mr_direction dir[],
-    mr_adjacency adj,
-    mr_direction *face
-) {
-    if (adj < MR_ADJACENCY_EDGE) {
-        return MR_FAILURE;
-    }
+static bool is_balanced(mr_ocforest *forest, mr_int cell_idx, mr_int neighbor_idx, mr_direction dir) {
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
+    mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_idx);
 
-    size_t cnt = 0;
-    for (size_t i = 0; i < adj; ++i) {
-        if (!is_node_adjacent(local_idx, &dir[i], MR_ADJACENCY_FACE)) {
-            continue;
-        }
-
-        *face = dir[i];
-        ++cnt;
-    }
-
-    if (cnt != 1) {
-        return MR_FAILURE;
-    }
-
-    return MR_SUCCESS;
+    return node->level - neighbor_node->level <= 1;
 }
 
-static mr_int mr_octree_find_edge_neighbor_with_refine(
-    mr_ocforest *forest,
-    mr_int idx,
-    mr_direction dir[MR_ADJACENCY_EDGE],
-    refinement_info *info
-) {
-    assert(forest);
-    assert(dir);
-    assert(idx != MR_INVALID_INDEX);
+static mr_int read_cell_local_coord(mr_int local_idx, mr_axis axis) {
+    return local_idx >> (axis * 2) & 0x3;
+}
 
-    mr_uint len = 0;
-    mr_int path[MR_OCTREE_MAX_LEVEL] = { 0 };
-    mr_uint max_level = info ? info->expected_level : 0;
+static mr_int write_cell_local_coord(mr_int local_idx, mr_axis axis, mr_int value) {
+    local_idx &= ~(0x3 << axis * 2);
+    local_idx |= (value & 0x3) << axis * 2;
 
-    mr_int ancestor_idx = find_ancestor(forest, idx, dir, MR_ADJACENCY_EDGE, path, &len);
-    if (ancestor_idx == MR_INVALID_INDEX) {
+    return local_idx;
+}
+
+static mr_int find_internal_neighbor_cell(mr_ocforest *forest, mr_int cell_idx, mr_direction dir) {
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
+
+    mr_int local_idx = cell_idx - node->first_child;
+    mr_axis axis = mr_direction_get_axis(dir);
+    mr_sign sign = mr_direction_get_sign(dir);
+
+    mr_int local_coord = read_cell_local_coord(local_idx, axis);
+    if (local_coord == (mr_int)sign * 0x3) {
         return MR_INVALID_INDEX;
     }
 
-    mr_direction cface;
-    mr_int neighbor_ancestor_idx = ancestor_idx;
-    if (common_face(path[len - 1], dir, MR_ADJACENCY_EDGE, &cface) == MR_SUCCESS) {
-        neighbor_ancestor_idx = mr_octree_find_face_neighbor_with_refine(forest, ancestor_idx, cface, info);
-    }
+    local_coord += mr_sign_to_mul(sign);
+    local_idx = write_cell_local_coord(local_idx, axis, local_coord);
+
+    return node->first_child + local_idx;
+}
+
+static mr_int find_equal_size_neighbor_cell(mr_ocforest *forest, mr_int cell_idx, mr_int neighbor_idx, mr_direction dir) {
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
+    mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_idx);
     
-    if (neighbor_ancestor_idx == MR_INVALID_INDEX) {
+    if (node->level != neighbor_node->level || !(neighbor_node->flags & MR_OCTREE_NODE_FLAG_LEAF)) {
         return MR_INVALID_INDEX;
     }
 
-    if (info && len == 2 && neighbor_ancestor_idx == ancestor_idx) {
-        ++max_level;
-        info->did_update_level = true;
-    }
+    mr_axis axis = mr_direction_get_axis(dir);
+    mr_int local_idx = (cell_idx - node->first_child) ^ (0x3 << axis * 2);
 
-    reflect_path(dir, MR_ADJACENCY_EDGE, path, len);
-    mr_int neighbor_idx = descend_path(forest, neighbor_ancestor_idx, path, len, info, max_level);
-    if (neighbor_idx == neighbor_ancestor_idx) {
+    return neighbor_node->first_child + local_idx;
+}
+
+static mr_int cell_idx_even_bits(mr_int cell_idx) {
+    return (cell_idx >> 2 & 0x4) | (cell_idx >> 1 & 0x2) | (cell_idx & 0x1);
+}
+
+static mr_int cell_idx_odd_bits(mr_int cell_idx) {
+    return (cell_idx >> 3 & 0x4) | (cell_idx >> 2 & 0x2) | (cell_idx >> 1 & 0x1);
+}
+
+// The local index of the cell is two interleaved local indices of octree nodes if the uniform grid of cells was given a tree structure
+static mr_int interleave_local_idx(mr_int a, mr_int b) {
+    return ((a & 0x4) << 3) | ((b & 0x4) << 2)
+         | ((a & 0x2) << 2) | ((b & 0x2) << 1)
+         | ((a & 0x1) << 1) | (b & 0x1);
+}
+
+static mr_int find_coarser_neighbor_cell(mr_ocforest *forest, mr_int cell_idx, mr_int neighbor_idx, mr_direction dir) {
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
+    mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_idx);
+    
+    if (node->level - neighbor_node->level != 1 || !(neighbor_node->flags & MR_OCTREE_NODE_FLAG_LEAF)) {
         return MR_INVALID_INDEX;
     }
 
-    return neighbor_idx;
+    mr_int node_local_idx = get_local_idx(forest, cell->parent);
+    mr_int cell_outer_local_idx = cell_idx_odd_bits(cell_idx - node->first_child);
+
+    mr_axis axis = mr_direction_get_axis(dir);
+    mr_int local_idx = interleave_local_idx(node_local_idx ^ (1 << axis), cell_outer_local_idx ^ (1 << axis));
+
+    return neighbor_node->first_child + local_idx;
 }
 
-mr_int mr_octree_find_edge_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_EDGE]) {
-    return mr_octree_find_edge_neighbor_with_refine(forest, idx, dir, NULL);
-}
-
-static int common_edge(
-    mr_int local_idx,
-    mr_direction dir[MR_ADJACENCY_VERTEX],
-    mr_direction edge[MR_ADJACENCY_EDGE]
+static void find_finer_neighbor_cells(
+    mr_ocforest *forest,
+    mr_int cell_idx,
+    mr_int neighbor_idx,
+    mr_direction dir,
+    mr_int neighbor_cells[4]
 ) {
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
+    mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_idx);
+    
+    mr_axis axis = mr_direction_get_axis(dir);
+    mr_sign sign = mr_direction_get_sign(dir);
+
+    mr_int cell_local_idx = cell_idx - node->first_child;
+    mr_int fine_neighbor_local_idx = cell_idx_odd_bits(cell_local_idx) ^ (1 << axis);
+
+    mr_octree_node *fine_neighbor_node = mr_ocforest_get_node(forest, neighbor_node->first_child + fine_neighbor_local_idx);
+    assert(fine_neighbor_node->first_child & MR_OCTREE_NODE_FLAG_LEAF);
+
+    mr_int neighbor_cell_outer_idx = cell_idx_even_bits(cell_local_idx) ^ (1 << axis);
     size_t cnt = 0;
-    for (size_t i = 0; i < MR_ADJACENCY_VERTEX; ++i) {
-        mr_direction curr_edge[] = { dir[i != 0 ? i - 1 : 2], dir[(i + 1) % 3] };
-        if (!is_node_adjacent(local_idx, curr_edge, MR_ADJACENCY_EDGE)) {
+    for (mr_int neighbor_cell_inner_idx = 0; neighbor_cell_inner_idx < MR_OCTREE_NB_CHILDREN; ++neighbor_cell_inner_idx) {
+        if ((neighbor_cell_inner_idx >> axis & 1) == sign) {
             continue;
         }
 
-        edge[0] = curr_edge[0];
-        edge[1] = curr_edge[1];
-
-        ++cnt;
+        neighbor_cells[cnt++] = fine_neighbor_node->first_child + interleave_local_idx(neighbor_cell_outer_idx, neighbor_cell_inner_idx);
     }
-
-    if (cnt != 1) {
-        return MR_FAILURE;
-    }
-
-    return MR_SUCCESS;
 }
 
-static mr_int mr_octree_find_vertex_neighbor_with_refine(
-    mr_ocforest *forest,
-    mr_int idx,
-    mr_direction dir[MR_ADJACENCY_VERTEX],
-    refinement_info *info
-) {
+mr_octree_cell_neighbor mr_octree_find_face_neighbor_cells(mr_ocforest *forest, mr_int cell_idx, mr_direction dir) {
     assert(forest);
-    assert(dir);
-    assert(idx != MR_INVALID_INDEX);
+    assert(cell_idx != MR_INVALID_INDEX);
 
-    mr_uint len = 0;
-    mr_int path[MR_OCTREE_MAX_LEVEL] = { 0 };
-    mr_uint max_level = info ? info->expected_level : 0;
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
 
-    mr_int ancestor_idx = find_ancestor(forest, idx, dir, MR_ADJACENCY_VERTEX, path, &len);
-    if (ancestor_idx == MR_INVALID_INDEX) {
-        return MR_INVALID_INDEX;
+    mr_int internal_neighbor_idx = find_internal_neighbor_cell(forest, cell_idx, dir);
+    if (internal_neighbor_idx != MR_INVALID_INDEX) {
+        return (mr_octree_cell_neighbor) {
+            .type = MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE,
+            .node_idx = cell->parent,
+            .neighbor_idx = internal_neighbor_idx,
+        };
     }
 
-    mr_direction common_elem[MR_ADJACENCY_EDGE];
-    mr_int neighbor_ancestor_idx = ancestor_idx;
-    if (common_edge(path[len - 1], dir, common_elem) == MR_SUCCESS) {
-        neighbor_ancestor_idx = mr_octree_find_edge_neighbor_with_refine(forest, ancestor_idx, common_elem, info);
-    } else if (common_face(path[len - 1], dir, MR_ADJACENCY_VERTEX, common_elem) == MR_SUCCESS) {
-        neighbor_ancestor_idx = mr_octree_find_face_neighbor_with_refine(forest, ancestor_idx, common_elem[0], info);
+    mr_int neighbor_idx = mr_octree_find_face_neighbor_node(forest, cell->parent, dir);
+
+    if (neighbor_idx == MR_INVALID_INDEX) {
+        return (mr_octree_cell_neighbor) {
+            .type = MR_OCTREE_CELL_NEIGHBOR_NONE,
+            .node_idx = MR_INVALID_INDEX,
+        };
+    }
+    assert(is_balanced(forest, cell_idx, neighbor_idx, dir));
+
+    mr_int equal_size_neighbor_idx = find_equal_size_neighbor_cell(forest, cell_idx, neighbor_idx, dir);
+    if (equal_size_neighbor_idx != MR_INVALID_INDEX) {
+        return (mr_octree_cell_neighbor) {
+            .type = MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE,
+            .node_idx = neighbor_idx,
+            .neighbor_idx = equal_size_neighbor_idx,
+        };
     }
 
-    if (neighbor_ancestor_idx == MR_INVALID_INDEX) {
-        return MR_INVALID_INDEX;
+    mr_int coarser_neighbor_idx = find_coarser_neighbor_cell(forest, cell_idx, neighbor_idx, dir);
+    if (coarser_neighbor_idx != MR_INVALID_INDEX) {
+        return (mr_octree_cell_neighbor) {
+            .type = MR_OCTREE_CELL_NEIGHBOR_COARSER,
+            .node_idx = neighbor_idx,
+            .neighbor_idx = coarser_neighbor_idx,
+        };
     }
 
-    if (info && len == 2 && neighbor_ancestor_idx == ancestor_idx) {
-        ++max_level;
-        info->did_update_level = true;
-    }
-
-    reflect_path(dir, MR_ADJACENCY_VERTEX, path, len);
-    mr_int neighbor_idx = descend_path(forest, neighbor_ancestor_idx, path, len, info, max_level);
-    if (neighbor_idx == neighbor_ancestor_idx) {
-        return MR_INVALID_INDEX;
-    }
-
-    return neighbor_idx;
+    mr_octree_cell_neighbor ret = { .type = MR_OCTREE_CELL_NEIGHBOR_FINER, .node_idx = neighbor_idx, };
+    find_finer_neighbor_cells(forest, cell_idx, neighbor_idx, dir, ret.neighbor_indices);
+    
+    return ret;
 }
 
-mr_int mr_octree_find_vertex_neighbor(mr_ocforest *forest, mr_int idx, mr_direction dir[MR_ADJACENCY_VERTEX]) {
-    return mr_octree_find_vertex_neighbor_with_refine(forest, idx, dir, NULL);
-}
+static bool cells_need_refine(mr_ocforest *forest, mr_int node_idx, mr_octree_cond_cb cond) {
+    if (!cond.fn) {
+        return true;
+    }
 
-static int activate_leaf(mr_ocforest *forest, mr_int node_idx, void *userdata) {
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
-
-    mr_octree_cond_cb *cond_ud = userdata;
-    if (cond_ud && cond_ud->fn && !cond_ud->fn(forest, node_idx, cond_ud->userdata)) {
-        node->flags &= ~MR_OCTREE_NODE_FLAG_ACTIVE;
-    } else {
-        node->flags |= MR_OCTREE_NODE_FLAG_ACTIVE;
+    for (mr_int i = 0; i < MR_OCTREE_NB_CELLS_IN_BLOCK; ++i) {
+        mr_int cell_idx = node->first_child + i;
+        if (cond.fn(forest, cell_idx, cond.userdata)) {
+            return true;
+        }
     }
 
-    return MR_SUCCESS;
+    return false;
 }
 
-/* 
- * TODO:
- * 1. Apply cond to cells in the node
- * 2. Delete previous cells after init of new cells to make it possible to save previous data
-*/
 static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdata) {
     mr_octree_cond_cb *cond_ud = userdata;
-    if (cond_ud && cond_ud->fn && !cond_ud->fn(forest, parent_idx, cond_ud->userdata)) {
+    if (cond_ud && !cells_need_refine(forest, parent_idx, *cond_ud)) {
         return MR_SUCCESS;
     }
 
@@ -810,19 +846,27 @@ static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdat
         return MR_SUCCESS;
     }
 
-    mr_index first_child = mr_mem_pool_alloc_many(forest->nodes, MR_OCTREE_NB_CHILDREN);
-    if (first_child == MR_INVALID_INDEX) {
+    mr_index first_node_idx = mr_mem_pool_alloc_many(forest->nodes, MR_OCTREE_NB_CHILDREN);
+    if (first_node_idx == MR_INVALID_INDEX) {
         return MR_FAILURE;
     }
+    assert(first_node_idx <= INT32_MAX && first_node_idx + MR_OCTREE_NB_CHILDREN <= INT32_MAX);
 
     parent = mr_ocforest_get_node(forest, parent_idx);
+    mr_int prev_cells = parent->first_child;
+
     parent->flags &= ~MR_OCTREE_NODE_FLAG_LEAF;
-    parent->first_child = first_child;
+    parent->first_child = first_node_idx;
 
     mr_float qdim = parent->dim / 4.0f;
     for (size_t i = 0; i < MR_OCTREE_NB_CHILDREN; ++i) {
-        mr_octree_node *node = mr_ocforest_get_node(forest, first_child + i);
+        mr_index first_cell_idx = mr_mem_pool_alloc_many(forest->cells, MR_OCTREE_NB_CELLS_IN_BLOCK);
+        assert(first_cell_idx <= INT32_MAX && first_cell_idx + MR_OCTREE_NB_CELLS_IN_BLOCK <= INT32_MAX);
+        if (first_cell_idx == MR_INVALID_INDEX) {
+            return MR_FAILURE;
+        }
 
+        mr_octree_node *node = mr_ocforest_get_node(forest, first_node_idx + i);
         *node = (mr_octree_node) {
             .flags = MR_OCTREE_NODE_FLAG_UNBALANCED | MR_OCTREE_NODE_FLAG_LEAF | (parent->flags & MR_OCTREE_NODE_FLAG_ACTIVE),
             .level = parent->level + 1,
@@ -833,17 +877,35 @@ static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdat
             .dim = parent->dim / 2.0f,
             .root = parent->root,
             .parent = parent_idx,
-            .first_child = MR_INVALID_INDEX,
+            .first_child = first_cell_idx,
             .value = 0.0f,
             .gradient = { 0.0f },
         };
 
-        mr_octree_node_connection *conn = mr_ocforest_get_node_connection(forest, first_child + i);
+        mr_octree_node_connection *conn = mr_ocforest_get_node_connection(forest, first_node_idx + i);
         *conn = (mr_octree_node_connection) {
             .local_idx = i,
             .external_neighbors = { MR_INVALID_INDEX, MR_INVALID_INDEX, MR_INVALID_INDEX },
         };
+
+        for (mr_int local_cell_idx = 0; local_cell_idx < MR_OCTREE_NB_CELLS_IN_BLOCK; ++local_cell_idx) {
+            mr_octree_cell *cell = mr_ocforest_get_cell(forest, first_cell_idx + local_cell_idx);
+
+            mr_float center[MR_NB_AXES] = { 0.0f };
+            calculate_cell_center(local_cell_idx, node->dim, (mr_float[]) { node->x, node->y, node->z }, center);
+
+            *cell = (mr_octree_cell) {
+                .parent = first_node_idx + i,
+                .chart_idx = node->chart_idx,
+                .x = center[0],
+                .y = center[1],
+                .z = center[2],
+                .dim = node->dim / MR_OCTREE_NODE_BLOCK_DIM,
+            };
+        }
     }
+
+    mr_mem_pool_remove_many(forest->cells, prev_cells, MR_OCTREE_NB_CELLS_IN_BLOCK);
 
     return MR_SUCCESS;
 }
@@ -858,56 +920,15 @@ void mr_octree_refine_all(mr_ocforest *forest, mr_index octree_idx, size_t nb_re
     }
 }
 
-typedef struct balance_userdata {
-    mr_uint level;
-    bool needs_repeat;
-} balance_userdata;
-
 static int balance_level(mr_ocforest *forest, mr_int node_idx, void *userdata) {
-    balance_userdata *balance_ud = userdata;
+    mr_uint level = *(mr_uint*)userdata;
 
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
-    if (node->level > balance_ud->level) {
-        return MR_SUCCESS;
-    }
-
-    if (node->flags & (MR_OCTREE_NODE_FLAG_UNBALANCED | MR_OCTREE_NODE_FLAG_LEAF) && node->level == balance_ud->level) {
-        mr_uint refine_level = node->level - 1;
-        refinement_info info = { refine_level, false, false };
+    if (node->flags & (MR_OCTREE_NODE_FLAG_UNBALANCED | MR_OCTREE_NODE_FLAG_LEAF) && node->level == level) {
+        mr_int refine_level = (mr_int)node->level - 1;
 
         for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
-            mr_octree_find_face_neighbor_with_refine(forest, node_idx, dir, &info);
-        }
-
-        for (mr_direction dir_0 = MR_DIRECTION_MI_X; dir_0 <= MR_DIRECTION_PL_Y; ++dir_0) {
-            for (mr_direction dir_1 = dir_0 - mr_direction_get_sign(dir_0) + 2; dir_1 <= MR_DIRECTION_PL_Z; ++dir_1) {
-                mr_direction edge[] = { dir_0, dir_1 };
-                mr_octree_find_edge_neighbor_with_refine(forest, node_idx, edge, &info);
-            }
-        }
-
-// Vertex balancing isn't actually needed for current algorithms, but I'll leave it for now
-#ifdef BALANCE_VERTEX
-#define NB_VERTICES 8
-        for (mr_uint i = 0; i < NB_VERTICES; ++i) {
-            mr_sign signs[] = {
-                i & 1,
-                i >> 1 & 1,
-                i >> 2 & 1,
-            };
-
-            mr_direction vertex[] = {
-                mr_direction_create(MR_AXIS_X, signs[MR_AXIS_X]),
-                mr_direction_create(MR_AXIS_Y, signs[MR_AXIS_Y]),
-                mr_direction_create(MR_AXIS_Z, signs[MR_AXIS_Z]),
-            };
-
-            mr_octree_find_vertex_neighbor_with_refine(forest, node_idx, vertex, &info);
-        }
-#endif // BALANCE_VERTEX
-
-        if (info.did_refine && info.did_update_level) {
-            balance_ud->needs_repeat = true;
+            mr_octree_find_face_neighbor_node_with_refine(forest, node_idx, dir, true, refine_level);
         }
 
         node = mr_ocforest_get_node(forest, node_idx);
@@ -922,14 +943,6 @@ void mr_octree_balance(mr_ocforest *forest, mr_index octree_idx) {
     assert((size_t)octree_idx < forest->nb_roots);
 
     for (mr_uint i = MR_OCTREE_MAX_LEVEL; i > 0; --i) {
-        balance_userdata userdata = {
-            .level = i,
-            .needs_repeat = false,
-        };
-
-        do {
-            userdata.needs_repeat = false;
-            mr_octree_leaves_apply(forest, octree_idx, mr_octree_apply_cb_create(balance_level, &userdata));
-        } while (userdata.needs_repeat);
+        mr_octree_leaves_apply(forest, octree_idx, mr_octree_apply_cb_create(balance_level, &i));
     }
 }

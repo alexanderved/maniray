@@ -67,14 +67,18 @@ static inline mr_int mr_direction_to_local_idx(mr_direction dir[MR_ADJACENCY_VER
     return local_idx;
 }
 
-static inline void mr_local_idx_to_direction(mr_int local_idx, mr_direction dir[MR_ADJACENCY_VERTEX]) {
+static inline void mr_node_local_idx_to_direction(mr_int local_idx, mr_direction dir[MR_ADJACENCY_VERTEX]) {
     for (mr_int i = 0; i < MR_ADJACENCY_VERTEX; ++i) {
         dir[i] = mr_direction_create(i, local_idx >> i & 1);
     }
 }
 
-static inline bool mr_is_local_idx_face_adjacent(mr_int local_idx, mr_direction dir) {
+static inline bool mr_is_node_local_idx_face_adjacent(mr_int local_idx, mr_direction dir) {
     return (local_idx >> mr_direction_get_axis(dir) & 1) == mr_direction_get_sign(dir);
+}
+
+static inline bool mr_is_cell_local_idx_face_adjacent(mr_int local_idx, mr_direction dir) {
+    return (local_idx >> (mr_direction_get_axis(dir) * 2) & 0x3) == mr_direction_get_sign(dir) * 0x3;
 }
 
 #endif // _MR_NAVIGATION_H

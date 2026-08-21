@@ -9,10 +9,10 @@ mr_float mr_cell_volume(mr_ocforest *forest, mr_int idx) {
         return 0.0f;
     }
 
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
-    mr_float center[MR_NB_AXES] = { node->x, node->y, node->z };
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, idx);
+    mr_float center[MR_NB_AXES] = { cell->x, cell->y, cell->z };
 
-    return pow(node->dim, 3.0f) * sqrt(mr_manifold3d_metric_determinant(forest->manifold, node->chart_idx, center));
+    return pow(cell->dim, 3.0f) * sqrt(mr_manifold3d_metric_determinant(forest->manifold, cell->chart_idx, center));
 }
 
 mr_float mr_cell_face_area(mr_ocforest *forest, mr_int idx, mr_direction face_dir) {
@@ -21,13 +21,13 @@ mr_float mr_cell_face_area(mr_ocforest *forest, mr_int idx, mr_direction face_di
     }
 
     mr_axis axis = mr_direction_get_axis(face_dir);
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, idx);
 
-    mr_float hdim = node->dim / 2.0f;
-    mr_float face_center[MR_NB_AXES] = { node->x, node->y, node->z };
+    mr_float hdim = cell->dim / 2.0f;
+    mr_float face_center[MR_NB_AXES] = { cell->x, cell->y, cell->z };
     face_center[axis] += mr_direction_get_sign_mul(face_dir) * hdim;
 
-    return pow(node->dim, 2.0f) * sqrt(mr_manifold3d_metric_minor(forest->manifold, node->chart_idx, face_center, axis, axis));
+    return pow(cell->dim, 2.0f) * sqrt(mr_manifold3d_metric_minor(forest->manifold, cell->chart_idx, face_center, axis, axis));
 }
 
 mr_float mr_cell_neighbor_distance(mr_ocforest *forest, mr_int idx, mr_direction dir) {
@@ -36,11 +36,11 @@ mr_float mr_cell_neighbor_distance(mr_ocforest *forest, mr_int idx, mr_direction
     }
 
     mr_axis axis = mr_direction_get_axis(dir);
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, idx);
 
-    mr_float hdim = node->dim / 2.0f;
-    mr_float middle[MR_NB_AXES] = { node->x, node->y, node->z };
+    mr_float hdim = cell->dim / 2.0f;
+    mr_float middle[MR_NB_AXES] = { cell->x, cell->y, cell->z };
     middle[axis] += mr_direction_get_sign_mul(dir) * hdim;
 
-    return node->dim * sqrt(mr_manifold_metric(forest->manifold, node->chart_idx, middle, axis, axis));
+    return cell->dim * sqrt(mr_manifold_metric(forest->manifold, cell->chart_idx, middle, axis, axis));
 }

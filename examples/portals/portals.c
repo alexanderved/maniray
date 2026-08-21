@@ -79,7 +79,7 @@ int run_display() {
     mr_manifold *manifold = setup_manifold();
     mr_ocforest *forest = setup_ocforest(manifold);
 
-    mr_isize octree_nodes_size = mr_ocforest_size(forest) * sizeof(mr_octree_node);
+    mr_isize octree_nodes_size = mr_ocforest_nb_nodes_upper_bound(forest) * sizeof(mr_octree_node);
     mr_isize octree_buffer_size = sizeof(mr_uint) + octree_nodes_size;
     mr_storage_buffer *octree_buffer = mr_storage_buffer_create(0);
     mr_storage_buffer_alloc(octree_buffer, octree_buffer_size, MR_STATIC_DRAW, NULL);
@@ -129,10 +129,13 @@ int run_display() {
 }
 
 int main() {
+#define DISPLAY
+#ifdef DISPLAY
     run_display();
-
-    /* mr_manifold *manifold = setup_manifold();
-    mr_ocforest *forest = setup_ocforest(manifold); */
+#else
+    mr_manifold *manifold = setup_manifold();
+    mr_ocforest *forest = setup_ocforest(manifold);
+#endif
 
     return 0;
 }

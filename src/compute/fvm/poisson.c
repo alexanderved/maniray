@@ -80,7 +80,7 @@ static int fill_inactive_cell_row(mr_ocforest *forest, mr_int idx, discr_matrix_
 
 static int get_interp_point(mr_ocforest *forest, mr_int idx, mr_float p[MR_NB_AXES]) {
     mr_octree_node *node = mr_ocforest_get_node(forest, idx);
-    mr_discretization_data *discr_data = mr_ocforest_get_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
+    mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
 
     mr_int donor_root_node_idx = forest->roots[discr_data->donor_root_idx].node_idx;
     mr_uint donor_chart = mr_ocforest_get_node(forest, donor_root_node_idx)->chart_idx;
@@ -104,7 +104,7 @@ static int fill_interp_cell_row(mr_ocforest *forest, mr_int idx, discr_matrix_da
         return MR_FAILURE;
     }
 
-    mr_discretization_data *discr_data = mr_ocforest_get_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
+    mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
     return mr_fvm_perform_interpolation(
         forest,
         discr_data->donor_root_idx,
@@ -175,7 +175,7 @@ static int calc_coarse_fine_flux(mr_ocforest *forest, mr_int idx, mr_int nidx, m
 
     mr_octree_node_connection *conn = mr_ocforest_get_node_connection(forest, idx);
     mr_direction ghost_cell_dir[MR_ADJACENCY_VERTEX] = { 0 };
-    mr_local_idx_to_direction(conn->local_idx, ghost_cell_dir);
+    mr_node_local_idx_to_direction(conn->local_idx, ghost_cell_dir);
 
     ghost_cell_userdata ud = { mat_data, coef };
     return mr_fvm_calculate_ghost_cell(
@@ -188,10 +188,10 @@ static int calc_coarse_fine_flux(mr_ocforest *forest, mr_int idx, mr_int nidx, m
 
 static int fill_discr_cell_row(mr_ocforest *forest, mr_int idx, discr_matrix_data *mat_data) {
     mr_octree_node *node = mr_ocforest_get_node(forest, idx);
-    mr_discretization_data *discr_data = mr_ocforest_get_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
+    mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
 
     for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
-        mr_int nidx = mr_octree_find_face_neighbor(forest, idx, dir);
+        mr_int nidx = mr_octree_find_face_neighbor_node(forest, idx, dir);
         if (nidx == MR_INVALID_INDEX) {
             if (discr_data->type != MR_CELL_TYPE_BOUNDARY) {
                 return MR_FAILURE;
@@ -216,7 +216,7 @@ static int fill_discr_cell_row(mr_ocforest *forest, mr_int idx, discr_matrix_dat
         } else {
             mr_direction reflected_dir = mr_direction_reflect(dir);
             for (mr_int local_idx = 0; local_idx < MR_OCTREE_NB_CHILDREN; ++local_idx) {
-                if (!mr_is_local_idx_face_adjacent(local_idx, reflected_dir)) {
+                if (!mr_is_node_local_idx_face_adjacent(local_idx, reflected_dir)) {
                     continue;
                 }
 
@@ -235,7 +235,7 @@ static int fill_discr_matrix(mr_ocforest *forest, mr_int idx, void *userdata) {
     discr_matrix_data *mat_data = userdata;
 
     mr_octree_node *node = mr_ocforest_get_node(forest, idx);
-    mr_discretization_data *discr_data = mr_ocforest_get_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
+    mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
 
     int res = MR_SUCCESS;
     if (!(node->flags & MR_OCTREE_NODE_FLAG_ACTIVE)) {
@@ -269,6 +269,7 @@ int mr_fvm_poisson_build_discretization_matrix(mr_fvm_poisson *poisson) {
     discr_matrix_data_create(poisson, &mat_data);
 
     for (mr_index octree_idx = 0; (size_t)octree_idx < poisson->forest->nb_roots; ++octree_idx) {
+#if 0
         int res = mr_octree_leaves_apply(
             poisson->forest,
             octree_idx,
@@ -282,6 +283,7 @@ int mr_fvm_poisson_build_discretization_matrix(mr_fvm_poisson *poisson) {
 
             return MR_FAILURE;
         }
+#endif
     }
 
 #if 1

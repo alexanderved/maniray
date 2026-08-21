@@ -21,6 +21,7 @@ mr_index mr_mem_pool_alloc(mr_mem_pool *pool);
 mr_index mr_mem_pool_alloc_many(mr_mem_pool *pool, size_t nb_elems);
 
 void mr_mem_pool_remove(mr_mem_pool *pool, mr_index idx);
+void mr_mem_pool_remove_many(mr_mem_pool *pool, mr_index idx, size_t nb_elems);
 
 void *mr_mem_pool_array_ptr(mr_mem_pool *pool, mr_index field);
 void *mr_mem_pool_ptr(mr_mem_pool *pool, mr_index field, mr_index idx);

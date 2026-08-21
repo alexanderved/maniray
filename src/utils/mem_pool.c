@@ -287,16 +287,21 @@ static size_t max_aligned_cap(mr_mem_pool *pool) {
     return closest_power_of_two(aligned_cap);
 }
 
-static void init_mem_pool(mr_mem_pool *pool, size_t init_cap) {
+static void init_mem_pool(mr_mem_pool *pool, size_t nb_elems) {
     size_t aligned_cap = max_aligned_cap(pool);
-    size_t rounded_cap = closest_power_of_two(init_cap);
-    init_cap = MR_MAX(aligned_cap, rounded_cap);
+    size_t rounded_cap = closest_power_of_two(nb_elems);
+    size_t init_cap = MR_MAX(aligned_cap, rounded_cap);
 
     pool->capacity = init_cap;
     pool->data = xmalloc(get_full_size(pool) * init_cap);
 
     pool->valid = xmalloc(sizeof(mr_uint) * valid_arr_cap(init_cap));
     memset(pool->valid, 0, sizeof(mr_uint) * valid_arr_cap(init_cap));
+
+    if (init_cap > nb_elems) {
+        free_block *block = alloc_new_block(nb_elems, init_cap - nb_elems);
+        pool->free_blocks.first_free_block = pool->free_blocks.last_free_block = block;
+    }
 }
 
 static void realloc_mem_pool(mr_mem_pool *pool, size_t cap_mul) {
@@ -372,6 +377,12 @@ void mr_mem_pool_remove(mr_mem_pool *pool, mr_index idx) {
 
     change_element_validity(pool, idx, false);
     free_block_list_insert(&pool->free_blocks, idx);
+}
+
+void mr_mem_pool_remove_many(mr_mem_pool *pool, mr_index idx, size_t nb_elems) {
+    for (mr_index i = idx; i < idx + (mr_index)nb_elems; ++i) {
+        mr_mem_pool_remove(pool, i);
+    }
 }
 
 void *mr_mem_pool_ptr(mr_mem_pool *pool, mr_index field, mr_index idx) {

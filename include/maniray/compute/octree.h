@@ -6,7 +6,7 @@
 #include "maniray/compute/navigation.h"
 
 #define MR_OCTREE_NB_CHILDREN 8
-#define MR_OCTREE_MAX_LEVEL 6
+#define MR_OCTREE_MAX_LEVEL 5
 
 #define MR_OCTREE_NODE_BLOCK_DIM 4
 #define MR_OCTREE_NB_CELLS_IN_BLOCK 64
@@ -123,8 +123,26 @@ void mr_octree_periodic_wrap(mr_ocforest *forest, mr_index octree_idx, mr_float 
 mr_int mr_octree_locate_point_in_leaf(mr_ocforest *forest, mr_index octree_idx, const mr_float p[MR_NB_AXES]);
 mr_int mr_octree_locate_point_in_cell(mr_ocforest *forest, mr_index octree_idx, const mr_float p[MR_NB_AXES]);
 
-mr_int mr_octree_find_face_neighbor_node(mr_ocforest *forest, mr_int idx, mr_direction dir);
-mr_int mr_octree_find_face_neighbor_cell(mr_ocforest *forest, mr_int idx, mr_direction dir);
+mr_int mr_octree_find_face_neighbor_node(mr_ocforest *forest, mr_int node_idx, mr_direction dir);
+
+typedef enum mr_octree_cell_neighbor_type {
+    MR_OCTREE_CELL_NEIGHBOR_NONE,
+    MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE,
+    MR_OCTREE_CELL_NEIGHBOR_COARSER,
+    MR_OCTREE_CELL_NEIGHBOR_FINER,
+} mr_octree_cell_neighbor_type;
+
+typedef struct mr_octree_cell_neighbor {
+    mr_octree_cell_neighbor_type type;
+    mr_int node_idx;
+
+    union {
+        mr_int neighbor_idx;        // EQUAL_SIZE or COARSER
+        mr_int neighbor_indices[4]; // FINER
+    };
+} mr_octree_cell_neighbor;
+
+mr_octree_cell_neighbor mr_octree_find_face_neighbor_cells(mr_ocforest *forest, mr_int cell_idx, mr_direction dir);
 
 void mr_octree_refine(mr_ocforest *forest, mr_index octree_idx, mr_octree_cond_cb cond, bool recursive);
 void mr_octree_refine_all(mr_ocforest *forest, mr_index octree_idx, size_t nb_repeats);

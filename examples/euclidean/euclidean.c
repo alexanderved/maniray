@@ -35,16 +35,23 @@ static mr_manifold *setup_manifold() {
     return mr_manifold_create(3, NB_CHARTS, charts, transitions);
 }
 
-static int setup_boundary(mr_ocforest *forest, mr_int idx, void *userdata) {
+static int setup_boundary(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     MR_UNUSED(userdata);
 
-    mr_discretization_data *discr_data = mr_ocforest_get_extra(forest, idx, MR_DISCR_DATA_EXTRA_FIELD);
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
+    mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
     if (discr_data->type != MR_CELL_TYPE_NONE) {
         return MR_SUCCESS;
     }
 
+    mr_int local_idx = cell_idx - node->first_child;
     for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
-        mr_int nidx = mr_octree_find_face_neighbor(forest, idx, dir);
+        if (!mr_is_cell_local_idx_face_adjacent(local_idx, dir)) {
+            continue;
+        }
+
+        mr_int nidx = mr_octree_find_face_neighbor_node(forest, cell->parent, dir);
         if (nidx == MR_INVALID_INDEX) {
             discr_data->type = MR_CELL_TYPE_BOUNDARY;
 
@@ -55,27 +62,23 @@ static int setup_boundary(mr_ocforest *forest, mr_int idx, void *userdata) {
     return MR_SUCCESS;
 }
 
-static bool point_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
+static bool point_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     mr_float *p = userdata;
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
 
-    return mr_norm_inf(p[0] - node->x, p[1] - node->y, p[2] - node->z) <= node->dim / 2.0f;
+    printf("%f %f\n", mr_norm_inf(p[0] - cell->x, p[1] - cell->y, p[2] - cell->z), cell->dim / 2.0f);
+
+    return mr_norm_inf(p[0] - cell->x, p[1] - cell->y, p[2] - cell->z) <= cell->dim / 2.0f;
 }
 
-static bool area_refine(mr_ocforest *forest, mr_int idx, void *userdata) {
+static bool area_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     MR_UNUSED(userdata);
 
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
-    return node->y <= -1.0f; // && node->z >= 0.0;
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    return cell->y <= -1.0f; // && cell->z >= 0.0;
 }
 
-static bool area_refine2(mr_ocforest *forest, mr_int idx, void *userdata) {
-    MR_UNUSED(userdata);
-
-    mr_octree_node *node = mr_ocforest_get_node(forest, idx);
-    return node->y <= -1.0f; // && node->z >= 0.0;
-}
-
+#if 0
 static int interpolation_test(mr_ocforest *forest, mr_int node_idx, mr_float coef, void *userdata) {
     MR_UNUSED(userdata);
 
@@ -91,6 +94,7 @@ static int interpolation_test(mr_ocforest *forest, mr_int node_idx, mr_float coe
 
     return MR_SUCCESS;
 }
+#endif
 
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #define NB_ROOTS 1
@@ -112,20 +116,16 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     clock_gettime(CLOCK_MONOTONIC, &start);
 
 
-    for (size_t i = 0; i < 3; ++i) {
-        mr_octree_refine_all(forest, 0);
-    }
+    mr_octree_refine_all(forest, 0, 2);
 
     mr_float p[3] = { 0.5f, 0.5f, -0.5f };
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, p), false);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_create(point_refine, p), false);
     /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false); */
-    /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false);
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false);
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine2, NULL), false); */
+    /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false); */
     mr_octree_balance(forest, 0);
 
-    mr_octree_leaves_apply(forest, 0, mr_octree_cond_cb_null(), mr_octree_apply_cb_create(setup_boundary, NULL), false);
-    mr_fvm_poisson_build_discretization_matrix(poisson);
+    mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(setup_boundary, NULL));
+    // mr_fvm_poisson_build_discretization_matrix(poisson);
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
@@ -134,7 +134,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     printf("Refine + Balance: %.2f ms\n", (double)elapsed_us / 1000.0);
 
 
-    mr_int point_node_idx = mr_octree_locate_point(forest, 0, (mr_float[]) { 0.5f, 0.5f, -0.5f });
+    mr_int point_node_idx = mr_octree_locate_point_in_leaf(forest, 0, (mr_float[]) { 0.5f, 0.5f, -0.5f });
     mr_octree_node *point_node = mr_ocforest_get_node(forest, point_node_idx);
     printf("Point Node %d: %f   (%f, %f, %f)\n",
         point_node_idx,
@@ -144,6 +144,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         point_node->z
     );
 
+#if 0
     mr_direction edge[] = { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y };
     mr_int neighbor_node_idx = mr_octree_find_edge_neighbor(forest, point_node_idx, edge);
     mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_node_idx);
@@ -163,6 +164,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         (mr_direction[]) { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y, MR_DIRECTION_MI_Z },
         mr_fvm_interpolation_cb_create(interpolation_test, NULL)
     );
+#endif
 
 
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -177,7 +179,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     printf("Combine Grids: %.2f ms\n", (double)elapsed_us / 1000.0);
 
 
-    printf("Ocforest size: %lu\n", mr_ocforest_size(forest));
+    printf("Number of nodes: %lu\n", mr_ocforest_nb_nodes_upper_bound(forest));
+    printf("Number of cells: %lu\n", mr_ocforest_nb_cells_upper_bound(forest));
 
     return forest;
 }
@@ -250,7 +253,7 @@ int run_display() {
     mr_manifold *manifold = setup_manifold();
     mr_ocforest *forest = setup_ocforest(manifold);
 
-    mr_isize octree_nodes_size = mr_ocforest_size(forest) * sizeof(mr_octree_node);
+    mr_isize octree_nodes_size = mr_ocforest_nb_nodes_upper_bound(forest) * sizeof(mr_octree_node);
     mr_isize octree_buffer_size = sizeof(mr_uint) + octree_nodes_size;
     mr_storage_buffer *octree_buffer = mr_storage_buffer_create(0);
     mr_storage_buffer_alloc(octree_buffer, octree_buffer_size, MR_STATIC_DRAW, NULL);
