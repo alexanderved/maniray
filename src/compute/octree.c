@@ -757,7 +757,7 @@ static void find_finer_neighbor_cells(
     mr_int fine_neighbor_local_idx = cell_idx_odd_bits(cell_local_idx) ^ (1 << axis);
 
     mr_octree_node *fine_neighbor_node = mr_ocforest_get_node(forest, neighbor_node->first_child + fine_neighbor_local_idx);
-    assert(fine_neighbor_node->first_child & MR_OCTREE_NODE_FLAG_LEAF);
+    assert(fine_neighbor_node->flags & MR_OCTREE_NODE_FLAG_LEAF);
 
     mr_int neighbor_cell_outer_idx = cell_idx_even_bits(cell_local_idx) ^ (1 << axis);
     size_t cnt = 0;
@@ -853,7 +853,9 @@ static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdat
     assert(first_node_idx <= INT32_MAX && first_node_idx + MR_OCTREE_NB_CHILDREN <= INT32_MAX);
 
     parent = mr_ocforest_get_node(forest, parent_idx);
+
     mr_int prev_cells = parent->first_child;
+    mr_mem_pool_remove_many(forest->cells, prev_cells, MR_OCTREE_NB_CELLS_IN_BLOCK);
 
     parent->flags &= ~MR_OCTREE_NODE_FLAG_LEAF;
     parent->first_child = first_node_idx;
@@ -904,8 +906,6 @@ static int insert_children(mr_ocforest *forest, mr_int parent_idx, void *userdat
             };
         }
     }
-
-    mr_mem_pool_remove_many(forest->cells, prev_cells, MR_OCTREE_NB_CELLS_IN_BLOCK);
 
     return MR_SUCCESS;
 }

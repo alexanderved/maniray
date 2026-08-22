@@ -66,8 +66,6 @@ static bool point_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     mr_float *p = userdata;
     mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
 
-    printf("%f %f\n", mr_norm_inf(p[0] - cell->x, p[1] - cell->y, p[2] - cell->z), cell->dim / 2.0f);
-
     return mr_norm_inf(p[0] - cell->x, p[1] - cell->y, p[2] - cell->z) <= cell->dim / 2.0f;
 }
 
@@ -78,23 +76,21 @@ static bool area_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     return cell->y <= -1.0f; // && cell->z >= 0.0;
 }
 
-#if 0
-static int interpolation_test(mr_ocforest *forest, mr_int node_idx, mr_float coef, void *userdata) {
+static int interpolation_test(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
     MR_UNUSED(userdata);
 
-    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
-    printf("Interpolation Node %d (Coef: %f): %f   (%f, %f, %f)\n",
-        node_idx,
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    printf("Interpolation Cell %d (Coef: %f): %f   (%f, %f, %f)\n",
+        cell_idx,
         coef,
-        node->dim,
-        node->x,
-        node->y,
-        node->z
+        cell->dim,
+        cell->x,
+        cell->y,
+        cell->z
     );
 
     return MR_SUCCESS;
 }
-#endif
 
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #define NB_ROOTS 1
@@ -116,7 +112,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     clock_gettime(CLOCK_MONOTONIC, &start);
 
 
-    mr_octree_refine_all(forest, 0, 2);
+    mr_octree_refine_all(forest, 0, 1);
 
     mr_float p[3] = { 0.5f, 0.5f, -0.5f };
     mr_octree_refine(forest, 0, mr_octree_cond_cb_create(point_refine, p), false);
@@ -134,37 +130,50 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     printf("Refine + Balance: %.2f ms\n", (double)elapsed_us / 1000.0);
 
 
-    mr_int point_node_idx = mr_octree_locate_point_in_leaf(forest, 0, (mr_float[]) { 0.5f, 0.5f, -0.5f });
-    mr_octree_node *point_node = mr_ocforest_get_node(forest, point_node_idx);
-    printf("Point Node %d: %f   (%f, %f, %f)\n",
-        point_node_idx,
-        point_node->dim,
-        point_node->x,
-        point_node->y,
-        point_node->z
+    mr_int point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.1f, -0.1f, -0.5f });
+    mr_octree_cell *point_cell = mr_ocforest_get_cell(forest, point_cell_idx);
+    printf("Point Cell %d: %f   (%f, %f, %f)\n",
+        point_cell_idx,
+        point_cell->dim,
+        point_cell->x,
+        point_cell->y,
+        point_cell->z
     );
 
+
+    mr_octree_cell_neighbor neighbor_cells = mr_octree_find_face_neighbor_cells(forest, point_cell_idx, MR_DIRECTION_PL_Y);
+    printf("Neighbor Type: %d\n", neighbor_cells.type);
+    printf("Neighbor Idx: %d\n", neighbor_cells.neighbor_indices[0]);
+
 #if 0
-    mr_direction edge[] = { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y };
-    mr_int neighbor_node_idx = mr_octree_find_edge_neighbor(forest, point_node_idx, edge);
-    mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_node_idx);
-    if (neighbor_node) {
-        printf("Neighbor Node %d: %f   (%f, %f, %f)\n",
-            neighbor_node_idx,
-            neighbor_node->dim,
-            neighbor_node->x,
-            neighbor_node->y,
-            neighbor_node->z
+    mr_octree_cell *neighbor_cell = mr_ocforest_get_cell(forest, neighbor_cell_idx);
+    if (neighbor_cell) {
+        printf("Neighbor Cell %d: %f   (%f, %f, %f)\n",
+            neighbor_cell_idx,
+            neighbor_cell->dim,
+            neighbor_cell->x,
+            neighbor_cell->y,
+            neighbor_cell->z
         );
     }
+#endif
 
     mr_fvm_calculate_ghost_cell(
         forest,
-        point_node_idx,
-        (mr_direction[]) { MR_DIRECTION_MI_X, MR_DIRECTION_MI_Y, MR_DIRECTION_MI_Z },
+        point_cell_idx,
+        neighbor_cells.neighbor_indices[0],
         mr_fvm_interpolation_cb_create(interpolation_test, NULL)
     );
-#endif
+
+    printf("--------------------------------------\n");
+
+    mr_fvm_perform_interpolation(
+        forest,
+        0,
+        (mr_float[]) { 0.1f, -0.1f, -0.5f },
+        mr_fvm_interpolation_cb_create(interpolation_test, NULL)
+    );
+
 
 
     clock_gettime(CLOCK_MONOTONIC, &start);

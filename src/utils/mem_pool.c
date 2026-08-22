@@ -41,6 +41,10 @@ static bool free_block_list_is_empty(free_block_list *list) {
 
 static free_block *find_insert_location(free_block_list *list, mr_index idx) {
     free_block *b = list->first_free_block;
+    if (!b) {
+        return NULL;
+    }
+
     while (b->next_block && b->next_block->idx < idx) {
         b = b->next_block;
     }
