@@ -130,10 +130,10 @@ static mr_float get_cell_center_axis(const mr_octree_cell *cell, mr_axis axis) {
     }
 }
 
-static mr_direction calculate_ghost_cell_direction(mr_octree_cell *cell, mr_octree_cell *neighbor_cell) {
+static mr_direction calculate_ghost_cell_direction(mr_octree_cell *coarse_cell, mr_octree_cell *fine_cell) {
     for (mr_axis axis = MR_AXIS_X; axis <= MR_AXIS_Z; ++axis) {
-        mr_float diff = get_cell_center_axis(neighbor_cell, axis) - get_cell_center_axis(cell, axis);
-        if (MR_ABS(diff) > cell->dim / 2.0f) {
+        mr_float diff = get_cell_center_axis(fine_cell, axis) - get_cell_center_axis(coarse_cell, axis);
+        if (MR_ABS(diff) > coarse_cell->dim / 2.0f) {
             mr_sign sign = diff < 0.0 ? MR_SIGN_MINUS : MR_SIGN_PLUS;
 
             return mr_direction_create(axis, sign);
@@ -146,12 +146,12 @@ static mr_direction calculate_ghost_cell_direction(mr_octree_cell *cell, mr_octr
 
 static mr_int get_tangent_stencil_first_local_idx(
     mr_ocforest *forest,
-    mr_int cell_idx,
+    mr_int coarse_cell_idx,
     mr_octree_cell *cell,
     mr_direction dir
 ) {
     mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
-    mr_int local_idx = cell_idx - node->first_child;
+    mr_int local_idx = coarse_cell_idx - node->first_child;
 
     mr_int local_coords[] = {
         extract_coord(local_idx, MR_AXIS_X),
@@ -171,16 +171,16 @@ static mr_int get_tangent_stencil_first_local_idx(
 }
 
 static void calculate_tangent_data_point(
-    mr_octree_cell *cell,
-    mr_octree_cell *neighbor_cell,
+    mr_octree_cell *coarse_cell,
+    mr_octree_cell *fine_cell,
     mr_direction dir,
     mr_float tangent_data_point[MR_NB_AXES]
 ) {
     mr_axis normal_axis = mr_direction_get_axis(dir);
 
     for (mr_axis axis = MR_AXIS_X; axis <= MR_AXIS_Z; ++axis) {
-        tangent_data_point[axis] = (axis == normal_axis) ? get_cell_center_axis(cell, axis)
-                                                         : get_cell_center_axis(neighbor_cell, axis);
+        tangent_data_point[axis] = (axis == normal_axis) ? get_cell_center_axis(coarse_cell, axis)
+                                                         : get_cell_center_axis(fine_cell, axis);
     }
 }
 
@@ -193,12 +193,12 @@ static mr_float calculate_tangent_coef(
         * lagrange_coef_with_idx(p[1], first_local_coords[1], local_coords[1]);
 }
 
-static void get_normal_stencil_indices(mr_ocforest *forest, mr_int neighbor_cell_idx, mr_direction dir, mr_int stencil[2]) {
-    mr_octree_cell_neighbor n = mr_octree_find_face_neighbor_cells(forest, neighbor_cell_idx, dir);
+static void get_normal_stencil_indices(mr_ocforest *forest, mr_int fine_cell_idx, mr_direction dir, mr_int stencil[2]) {
+    mr_octree_cell_neighbor n = mr_octree_find_face_neighbor_cells(forest, fine_cell_idx, dir);
     assert(n.type == MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE);
 
     stencil[0] = n.neighbor_idx;
-    stencil[1] = neighbor_cell_idx;
+    stencil[1] = fine_cell_idx;
 }
 
 static void calculate_normal_stencil(
@@ -233,14 +233,14 @@ static void calculate_normal_coefs(mr_float stencil[Q_STENCIL_DIM], mr_float coe
 
 static int interpolate_ghost_cell_tangent(
     mr_ocforest *forest,
-    mr_int cell_idx,
+    mr_int coarse_cell_idx,
     mr_int tangent_first_local_idx,
     mr_float tangent_data_point[MR_NB_AXES],
     mr_direction dir,
     mr_float mul,
     mr_fvm_interpolation_cb interp
 ) {
-    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, coarse_cell_idx);
     mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
 
     mr_axis normal_axis = mr_direction_get_axis(dir);
@@ -249,7 +249,7 @@ static int interpolate_ghost_cell_tangent(
         MR_MOD((mr_int)normal_axis + 1, MR_NB_AXES),
     };
 
-    mr_int cell_local_idx = cell_idx - node->first_child;
+    mr_int cell_local_idx = coarse_cell_idx - node->first_child;
     mr_int cell_tangent_coords[] = {
         extract_coord(cell_local_idx, tangent_axes[0]),
         extract_coord(cell_local_idx, tangent_axes[1]),
@@ -292,7 +292,7 @@ static int interpolate_ghost_cell_tangent(
 
 static int interpolate_ghost_cell(
     mr_ocforest *forest,
-    mr_int cell_idx,
+    mr_int coarse_cell_idx,
     mr_int tangent_first_local_idx,
     mr_int normal_stencil_cell_indices[2],
     mr_float tangent_data_point[MR_NB_AXES],
@@ -316,7 +316,7 @@ static int interpolate_ghost_cell(
 
     return interpolate_ghost_cell_tangent(
         forest,
-        cell_idx,
+        coarse_cell_idx,
         tangent_first_local_idx,
         tangent_data_point,
         dir,
@@ -325,22 +325,22 @@ static int interpolate_ghost_cell(
     );
 }
 
-int mr_fvm_calculate_ghost_cell(mr_ocforest *forest, mr_int cell_idx, mr_int neighbor_cell_idx, mr_fvm_interpolation_cb interp) {
+int mr_fvm_calculate_ghost_cell(mr_ocforest *forest, mr_int coarse_cell_idx, mr_int fine_cell_idx, mr_fvm_interpolation_cb interp) {
     assert(forest);
-    assert(cell_idx != MR_INVALID_INDEX);
-    assert(neighbor_cell_idx != MR_INVALID_INDEX);
+    assert(coarse_cell_idx != MR_INVALID_INDEX);
+    assert(fine_cell_idx != MR_INVALID_INDEX);
     assert(interp.fn);
 
-    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
-    mr_octree_cell *neighbor_cell = mr_ocforest_get_cell(forest, neighbor_cell_idx);
-    mr_direction dir = calculate_ghost_cell_direction(cell, neighbor_cell);
+    mr_octree_cell *coarse_cell = mr_ocforest_get_cell(forest, coarse_cell_idx);
+    mr_octree_cell *fine_cell = mr_ocforest_get_cell(forest, fine_cell_idx);
+    mr_direction dir = calculate_ghost_cell_direction(coarse_cell, fine_cell);
 
-    mr_int tangent_first_local_idx = get_tangent_stencil_first_local_idx(forest, cell_idx, cell, dir);
+    mr_int tangent_first_local_idx = get_tangent_stencil_first_local_idx(forest, coarse_cell_idx, coarse_cell, dir);
     mr_int normal_stencil_cell_indices[2] = { 0 };
-    get_normal_stencil_indices(forest, neighbor_cell_idx, dir, normal_stencil_cell_indices);
+    get_normal_stencil_indices(forest, fine_cell_idx, dir, normal_stencil_cell_indices);
 
     mr_float tangent_data_point[MR_NB_AXES] = { 0.0f };
-    calculate_tangent_data_point(cell, neighbor_cell, dir, tangent_data_point);
+    calculate_tangent_data_point(coarse_cell, fine_cell, dir, tangent_data_point);
 
-    return interpolate_ghost_cell(forest, cell_idx, tangent_first_local_idx, normal_stencil_cell_indices, tangent_data_point, dir, interp);
+    return interpolate_ghost_cell(forest, coarse_cell_idx, tangent_first_local_idx, normal_stencil_cell_indices, tangent_data_point, dir, interp);
 }

@@ -164,6 +164,20 @@ size_t mr_ocforest_count_cells(mr_ocforest *forest) {
     return mr_ocforest_count_leaves(forest) * MR_OCTREE_NB_CELLS_IN_BLOCK;
 }
 
+mr_octree_root *mr_ocforest_get_root(mr_ocforest *forest, mr_index octree_idx) {
+    assert(forest);
+    assert((size_t)octree_idx < forest->nb_roots);
+
+    return &forest->roots[octree_idx];
+}
+
+mr_int mr_ocforest_get_root_node(mr_ocforest *forest, mr_index octree_idx) {
+    assert(forest);
+    assert((size_t)octree_idx < forest->nb_roots);
+
+    return forest->roots[octree_idx].node_idx;
+}
+
 mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx) {
     assert(forest);
 
@@ -220,20 +234,20 @@ static void get_root_corner(mr_octree_node *root, mr_float coords[MR_NB_AXES]) {
     coords[MR_AXIS_Z] = root->z - hdim;
 }
 
-static void get_node_int_coords(mr_ocforest *forest, mr_octree_node *node, mr_octree_cell *cell, mr_int coords[MR_NB_AXES]) {
+static void get_node_int_coords(mr_ocforest *forest, mr_octree_node *node, mr_int coords[MR_NB_AXES]) {
     mr_octree_node *root = mr_ocforest_get_node(forest, forest->roots[node->root].node_idx);
 
     mr_float root_coords[MR_NB_AXES] = { 0.0f };
     get_root_corner(root, root_coords);    
 
-    mr_float hdim = cell->dim / 2.0f;
-    mr_float scale = (mr_float)(1 << (MR_OCTREE_MAX_LEVEL + 2)) / root->dim;
+    mr_float hdim = node->dim / 2.0f;
+    mr_float scale = (mr_float)(1 << MR_OCTREE_MAX_LEVEL) / root->dim;
 
-    coords[MR_AXIS_X] = (mr_int)llround((cell->x - root_coords[MR_AXIS_X] - hdim) * scale);
-    coords[MR_AXIS_Y] = (mr_int)llround((cell->y - root_coords[MR_AXIS_Y] - hdim) * scale);
-    coords[MR_AXIS_Z] = (mr_int)llround((cell->z - root_coords[MR_AXIS_Z] - hdim) * scale);
+    coords[MR_AXIS_X] = (mr_int)llround((node->x - root_coords[MR_AXIS_X] - hdim) * scale);
+    coords[MR_AXIS_Y] = (mr_int)llround((node->y - root_coords[MR_AXIS_Y] - hdim) * scale);
+    coords[MR_AXIS_Z] = (mr_int)llround((node->z - root_coords[MR_AXIS_Z] - hdim) * scale);
 
-    mr_int max_value = (1 << (MR_OCTREE_MAX_LEVEL + 2)) - 1;
+    mr_int max_value = (1 << MR_OCTREE_MAX_LEVEL) - 1;
     coords[MR_AXIS_X] = MR_CLAMP(coords[MR_AXIS_X], 0, max_value);
     coords[MR_AXIS_Y] = MR_CLAMP(coords[MR_AXIS_Y], 0, max_value);
     coords[MR_AXIS_Z] = MR_CLAMP(coords[MR_AXIS_Z], 0, max_value);
@@ -259,12 +273,13 @@ mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int cell_idx) {
     mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
 
     mr_int coords[MR_NB_AXES] = { 0 };
-    get_node_int_coords(forest, node, cell, coords);
+    get_node_int_coords(forest, node, coords);
 
-    mr_int morton_code = interleave_bits(coords[MR_AXIS_X], coords[MR_AXIS_Y], coords[MR_AXIS_Z], MR_OCTREE_MAX_LEVEL);
-    mr_int root_code = node->root << MR_NB_AXES * MR_OCTREE_MAX_LEVEL;
+    mr_int local_idx = cell_idx - node->first_child;
+    mr_int morton_code = interleave_bits(coords[MR_AXIS_X], coords[MR_AXIS_Y], coords[MR_AXIS_Z], MR_OCTREE_MAX_LEVEL) << MR_NB_AXES * 2;
+    mr_int root_code = node->root << MR_NB_AXES * (MR_OCTREE_MAX_LEVEL + 2);
 
-    return morton_code | root_code;
+    return local_idx | morton_code | root_code;
 }
 
 static mr_int extract_local_idx(mr_int code, mr_int level) {
@@ -282,9 +297,7 @@ mr_int mr_ocforest_find_cell_with_code(mr_ocforest *forest, mr_int code) {
 
     for (mr_int level = 1; level <= MR_OCTREE_MAX_LEVEL; ++level) {
         if (node->flags & MR_OCTREE_NODE_FLAG_LEAF) {
-            return node->first_child
-                + (extract_local_idx(code, level + 1) << MR_NB_AXES)
-                + extract_local_idx(code, level + 2);
+            return node->first_child + (code & 0x3F);
         }
 
         node_idx = node->first_child + extract_local_idx(code, level);
@@ -653,7 +666,7 @@ mr_int mr_octree_find_face_neighbor_node(mr_ocforest *forest, mr_int idx, mr_dir
     return mr_octree_find_face_neighbor_node_with_refine(forest, idx, dir, false, 0);
 }
 
-static bool is_balanced(mr_ocforest *forest, mr_int cell_idx, mr_int neighbor_idx, mr_direction dir) {
+static bool is_balanced(mr_ocforest *forest, mr_int cell_idx, mr_int neighbor_idx) {
     mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
     mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
     mr_octree_node *neighbor_node = mr_ocforest_get_node(forest, neighbor_idx);
@@ -793,7 +806,7 @@ mr_octree_cell_neighbor mr_octree_find_face_neighbor_cells(mr_ocforest *forest, 
             .node_idx = MR_INVALID_INDEX,
         };
     }
-    assert(is_balanced(forest, cell_idx, neighbor_idx, dir));
+    assert(is_balanced(forest, cell_idx, neighbor_idx));
 
     mr_int equal_size_neighbor_idx = find_equal_size_neighbor_cell(forest, cell_idx, neighbor_idx, dir);
     if (equal_size_neighbor_idx != MR_INVALID_INDEX) {

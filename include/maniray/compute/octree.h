@@ -101,6 +101,9 @@ size_t mr_ocforest_nb_cells_upper_bound(mr_ocforest *forest);
 size_t mr_ocforest_count_leaves(mr_ocforest *forest);
 size_t mr_ocforest_count_cells(mr_ocforest *forest);
 
+mr_octree_root *mr_ocforest_get_root(mr_ocforest *forest, mr_index octree_idx);
+mr_int mr_ocforest_get_root_node(mr_ocforest *forest, mr_index octree_idx);
+
 mr_octree_node *mr_ocforest_get_node(mr_ocforest *forest, mr_int idx);
 mr_octree_node *mr_ocforest_get_node_array(mr_ocforest *forest);
 
@@ -155,7 +158,6 @@ void mr_octree_balance(mr_ocforest *forest, mr_index octree_idx);
  * 1. Add userdata with dtor
  * 2. Add callbacks (call them mr_octree_ops) which should be called on some actions (activation, node initialization during refinement, etc.)
  * 3. Add functions to conviniently call this callbacks
- * 4. Add face neighbor caching
 */
 
 #endif // _MR_OCTREE_H

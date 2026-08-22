@@ -1,6 +1,8 @@
 #ifndef _MR_MISC_H
 #define _MR_MISC_H
 
+#include <stdbool.h>
+
 #define MR_FAILURE 0
 #define MR_SUCCESS 1
 
@@ -19,6 +21,9 @@
     } \
     static inline name ## _cb name ## _cb_null() { \
         return (name ## _cb) { NULL, NULL }; \
+    } \
+    static inline bool name ## _cb_is_null(name ## _cb cb) { \
+        return !cb.fn; \
     }
 
 #endif // _MR_MISC_H

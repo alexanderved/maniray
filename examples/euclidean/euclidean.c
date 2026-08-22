@@ -118,10 +118,10 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     mr_octree_refine(forest, 0, mr_octree_cond_cb_create(point_refine, p), false);
     /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false); */
     /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false); */
-    mr_octree_balance(forest, 0);
+    // mr_octree_balance(forest, 0);
 
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(setup_boundary, NULL));
-    // mr_fvm_poisson_build_discretization_matrix(poisson);
+    mr_fvm_poisson_build_discretization_matrix(poisson);
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
@@ -158,6 +158,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     }
 #endif
 
+#if 0
     mr_fvm_calculate_ghost_cell(
         forest,
         point_cell_idx,
@@ -173,7 +174,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         (mr_float[]) { 0.1f, -0.1f, -0.5f },
         mr_fvm_interpolation_cb_create(interpolation_test, NULL)
     );
-
+#endif
 
 
     clock_gettime(CLOCK_MONOTONIC, &start);
