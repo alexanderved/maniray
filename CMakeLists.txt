@@ -7,11 +7,13 @@ endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+find_package(MPI REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PETSC REQUIRED IMPORTED_TARGET PETSc)
+
 find_package(glfw3 3.3 REQUIRED)
 find_package(OpenGL REQUIRED)
-set(LIBS m glfw OpenGL::GL GLAD superlu)
-
-add_compile_options(-Wno-unused-result)
+set(LIBS m glfw OpenGL::GL GLAD MPI::MPI_C PkgConfig::PETSC)
 
 add_subdirectory(external)
 add_subdirectory(src)

@@ -7,7 +7,7 @@
 #include "maniray/compute/fvm/interpolation.h"
 #include "maniray/compute/fvm/poisson.h"
 #include "maniray/compute/fvm/scalar.h"
-#include "maniray/compute/sparse_matrix.h"
+#include "maniray/compute/matrix.h"
 
 mr_fvm_poisson *mr_fvm_poisson_create(
     mr_manifold *manifold,
@@ -16,6 +16,8 @@ mr_fvm_poisson *mr_fvm_poisson_create(
     mr_fvm_poisson_source_fn source_fn
 ) {
     mr_fvm_poisson *poisson = xmalloc(sizeof(mr_fvm_poisson));
+
+    poisson->source_fn = source_fn;
 
     poisson->forest = mr_ocforest_create(
         manifold,
@@ -26,7 +28,9 @@ mr_fvm_poisson *mr_fvm_poisson_create(
     );
     poisson->code_map = NULL;
 
-    poisson->source_fn = source_fn;
+    poisson->discr_mat = NULL;
+    poisson->source_terms = NULL;
+    poisson->res = NULL;
 
     return poisson;
 }
@@ -35,6 +39,10 @@ void mr_fvm_poisson_destroy(mr_fvm_poisson *poisson) {
     if (!poisson) {
         return;
     }
+
+    free(poisson->res);
+    mr_dense_matrix_destroy(poisson->source_terms);
+    mr_sparse_matrix_destroy(poisson->discr_mat);
 
     mr_code_map_destroy(poisson->code_map);
     mr_ocforest_destroy(poisson->forest);
@@ -126,6 +134,7 @@ int mr_fvm_poisson_build_discretization_matrix(mr_fvm_poisson *poisson) {
         return MR_FAILURE;
     }
 
+    // TODO: create functions to start and end building octree and move this code there
     if (!poisson->code_map) {
         poisson->code_map = mr_code_map_create_from_ocforest(poisson->forest);
     }
@@ -146,21 +155,123 @@ int mr_fvm_poisson_build_discretization_matrix(mr_fvm_poisson *poisson) {
         }
     }
 
-#if 1
-    for (size_t i = 0; i < mat_data.matrix_builder->dim; ++i) {
-        printf("Row %lu: ", i);
-        for (size_t j = mat_data.matrix_builder->rows[i]; j < mat_data.matrix_builder->rows[i + 1]; ++j) {
-            printf("%lu: %f\t", mat_data.matrix_builder->cols[j], mat_data.matrix_builder->values[j]);
+#if 0
+    for (mr_int i = 0; i < mat_data.matrix_builder->dim; ++i) {
+        printf("Row %d: ", i);
+        for (mr_int j = mat_data.matrix_builder->rows[i]; j < mat_data.matrix_builder->rows[i + 1]; ++j) {
+            printf("%d: %f\t", mat_data.matrix_builder->cols[j], mat_data.matrix_builder->values[j]);
         }
         printf("\n");
     }
 #endif
 
+    poisson->discr_mat = mr_sparse_matrix_build(mat_data.matrix_builder);
+
+    mat_data.matrix_builder = NULL;
     discr_matrix_data_destroy(&mat_data);
 
     return MR_SUCCESS;
 }
 
+typedef struct source_term_data {
+    mr_fvm_poisson *poisson;
+
+    mr_float64 *source_term_arr;
+} source_term_data;
+
+// TODO: Add boundary handling
+static int fill_source_term_array(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    source_term_data *src_data = userdata;
+
+    mr_int code = mr_ocforest_get_code(forest, cell_idx);
+    size_t col = mr_code_map_get_index(src_data->poisson->code_map, code);
+
+    mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
+    if (discr_data->type == MR_CELL_TYPE_EXTERIOR || discr_data->type == MR_CELL_TYPE_INTERPOLATION) {
+        src_data->source_term_arr[col] = 0.0f;
+    } else {
+        mr_float value = src_data->poisson->source_fn ? src_data->poisson->source_fn(src_data->poisson, cell_idx) : 0.0f;
+        src_data->source_term_arr[col] = value;
+    }
+
+    return MR_SUCCESS;
+}
+
 int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson) {
+    source_term_data st_data;
+    st_data.poisson = poisson;
+    st_data.source_term_arr = xmalloc(poisson->code_map->len * sizeof(mr_float64));
+
+    for (mr_index octree_idx = 0; (size_t)octree_idx < poisson->forest->nb_roots; ++octree_idx) {
+        int res = mr_octree_cells_apply(
+            poisson->forest,
+            octree_idx,
+            mr_octree_apply_cb_create(fill_source_term_array, &st_data)
+        );
+
+        if (res != MR_SUCCESS) {
+            free(st_data.source_term_arr);
+
+            return res;
+        }
+    }
+
+    poisson->source_terms = mr_dense_matrix_create(st_data.source_term_arr, poisson->code_map->len);
+
+    return MR_SUCCESS;
+}
+
+int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
+    // TODO: Handle errors better
+    Vec x;
+    KSP ksp;
+
+    Mat A = poisson->discr_mat->mat;
+    Vec b = poisson->source_terms->vec;
+
+    if (VecDuplicate(b, &x)) abort();
+    if (VecSet(x, 0.0)) abort();
+
+    if (KSPCreate(PETSC_COMM_SELF, &ksp)) abort();
+
+    // Required to make the matrix non-singular
+    MatNullSpace nsp;
+    MatNullSpaceCreate(PETSC_COMM_SELF, PETSC_TRUE, 0, NULL, &nsp);
+    MatSetNullSpace(A, nsp);
+    MatSetTransposeNullSpace(A, nsp);
+
+    if (KSPSetOperators(ksp, A, A)) abort();
+
+    if (KSPSetType(ksp, KSPGMRES)) abort();
+
+    /* PC pc;
+    if (KSPGetPC(ksp, &pc)) abort();
+    if (PCSetType(pc, PCGAMG)) abort(); */
+
+    if (KSPSetFromOptions(ksp)) abort();
+    if (KSPSolve(ksp, b, x)) abort();
+
+    const mr_float64 *res_arr;
+    if (VecGetArrayRead(x, &res_arr)) abort();
+
+    poisson->res = xmalloc(poisson->source_terms->len * sizeof(mr_float64));
+    memcpy(poisson->res, res_arr, poisson->source_terms->len * sizeof(mr_float64));
+
+    if (VecRestoreArrayRead(x, &res_arr)) abort();
+
+    // if (VecView(x, PETSC_VIEWER_STDOUT_SELF)) abort();
+
+
+    MatNullSpaceDestroy(&nsp);
+    if (KSPDestroy(&ksp)) abort();
+    if (VecDestroy(&x)) abort();
+
+
+#if 0
+    for (mr_int i = 0; i < poisson->discr_mat->dim; ++i) {
+        printf("%d: %f\n", i, poisson->res[i]);
+    }
+#endif
+
     return MR_SUCCESS;
 }

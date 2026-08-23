@@ -10,6 +10,7 @@ typedef int32_t mr_int;
 typedef uint32_t mr_uint;
 
 typedef float mr_float;
+typedef double mr_float64;
 
 typedef ptrdiff_t mr_isize;
 typedef mr_isize mr_index;

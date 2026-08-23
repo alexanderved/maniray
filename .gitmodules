@@ -1,3 +1,0 @@
-[submodule "external/superlu"]
-	path = external/superlu
-	url = https://github.com/xiaoyeli/superlu.git

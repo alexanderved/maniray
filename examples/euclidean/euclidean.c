@@ -3,6 +3,8 @@
 #include <time.h>
 #include <math.h>
 
+#include <petsc/petsc.h>
+
 #include "maniray/display/engine.h"
 #include "maniray/display/camera.h"
 #include "maniray/display/uniform_buffer.h"
@@ -73,7 +75,7 @@ static bool area_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     MR_UNUSED(userdata);
 
     mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
-    return cell->y <= -1.0f; // && cell->z >= 0.0;
+    return cell->x >= 0.0 && cell->y <= 0.0f && cell->z >= -1.0;
 }
 
 static int interpolation_test(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
@@ -92,6 +94,34 @@ static int interpolation_test(mr_ocforest *forest, mr_int cell_idx, mr_float coe
     return MR_SUCCESS;
 }
 
+static mr_int point_cell_idx = 0;
+
+static mr_float source_test(mr_fvm_poisson *poisson, mr_int cell_idx) {
+    if (cell_idx == point_cell_idx) {
+        return 1.0f;
+    }
+
+    return 0.0f;
+}
+
+static int write_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    mr_fvm_poisson *poisson = userdata;
+
+    mr_int code = mr_ocforest_get_code(forest, cell_idx);
+    size_t col = mr_code_map_get_index(poisson->code_map, code);
+
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
+
+    if (cell_idx == point_cell_idx) {
+        printf("Main cell: %f\n", poisson->res[col]);
+    }
+
+    node->value += poisson->res[col] / 64.0f;
+
+    return MR_SUCCESS;
+}
+
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #define NB_ROOTS 1
     mr_octree_root_desc descs[NB_ROOTS] = {
@@ -105,23 +135,23 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
         },
     };
 
-    mr_fvm_poisson *poisson = mr_fvm_poisson_create(manifold, descs, NB_ROOTS, NULL);
+    mr_fvm_poisson *poisson = mr_fvm_poisson_create(manifold, descs, NB_ROOTS, source_test);
     mr_ocforest *forest = poisson->forest;
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
 
-    mr_octree_refine_all(forest, 0, 1);
+    mr_octree_refine_all(forest, 0, 4);
 
-    mr_float p[3] = { 0.5f, 0.5f, -0.5f };
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_create(point_refine, p), false);
-    /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false); */
-    /* mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(area_refine, NULL), false); */
+    // mr_float p[3] = { 0.5f, 0.5f, -0.5f };
+    // mr_octree_refine(forest, 0, mr_octree_cond_cb_create(point_refine, p), false);
+    // mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false);
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_create(area_refine, NULL), false);
     // mr_octree_balance(forest, 0);
 
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(setup_boundary, NULL));
-    mr_fvm_poisson_build_discretization_matrix(poisson);
+
 
     clock_gettime(CLOCK_MONOTONIC, &end);
     long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
@@ -130,7 +160,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     printf("Refine + Balance: %.2f ms\n", (double)elapsed_us / 1000.0);
 
 
-    mr_int point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.1f, -0.1f, -0.5f });
+    point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.1f, -0.1f, -0.5f });
     mr_octree_cell *point_cell = mr_ocforest_get_cell(forest, point_cell_idx);
     printf("Point Cell %d: %f   (%f, %f, %f)\n",
         point_cell_idx,
@@ -144,6 +174,31 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     mr_octree_cell_neighbor neighbor_cells = mr_octree_find_face_neighbor_cells(forest, point_cell_idx, MR_DIRECTION_PL_Y);
     printf("Neighbor Type: %d\n", neighbor_cells.type);
     printf("Neighbor Idx: %d\n", neighbor_cells.neighbor_indices[0]);
+
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    mr_fvm_poisson_build_discretization_matrix(poisson);
+    mr_fvm_poisson_build_source_terms(poisson);
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
+                 (end.tv_nsec - start.tv_nsec) / 1000;
+
+    printf("Build Equation: %.2f ms\n", (double)elapsed_us / 1000.0);
+
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    mr_fvm_poisson_solve(poisson);
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
+                 (end.tv_nsec - start.tv_nsec) / 1000;
+
+    mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(write_eq_res, poisson));
+
+    printf("Solve: %.2f ms\n", (double)elapsed_us / 1000.0);
 
 #if 0
     mr_octree_cell *neighbor_cell = mr_ocforest_get_cell(forest, neighbor_cell_idx);
@@ -312,8 +367,18 @@ int run_display() {
     return 0;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
+
+#define DISPLAY
+#ifdef DISPLAY
     run_display();
+#else
+    mr_manifold *manifold = setup_manifold();
+    mr_ocforest *forest = setup_ocforest(manifold);
+#endif
+
+    PetscCall(PetscFinalize());
 
     return 0;
 }

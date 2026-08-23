@@ -121,7 +121,9 @@ vec4 draw_octree_slice(vec2 xy) {
                 continue;
             }
 
-            res = vec4(hsv2rgb(vec3(50.0 * float(i + 1) / 355.0, 1.0, 1.0)), 1.0);
+            // float h = 50.0 * float(i + 1) / 355.0;
+            float h = nodes[idx].value;
+            res = vec4(hsv2rgb(vec3(h, 1.0, 1.0)), 1.0);
         }
     }
 
