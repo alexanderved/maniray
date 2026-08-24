@@ -137,9 +137,10 @@ mr_sparse_matrix *mr_sparse_matrix_build(mr_sparse_matrix_builder *builder) {
     mat->cols = builder->cols;
     mat->rows = builder->rows;
 
-    if (MatCreateSeqAIJWithArrays(PETSC_COMM_SELF, mat->dim, mat->dim, mat->rows, mat->cols, mat->values, &mat->mat)) {
-        abort();
-    }
+    lis_matrix_create(LIS_COMM_WORLD, &mat->mat);
+    lis_matrix_set_size(mat->mat, 0, mat->dim);
+    lis_matrix_set_csr(mat->rows[mat->dim], mat->rows, mat->cols, mat->values, mat->mat);
+    lis_matrix_assemble(mat->mat);
 
     free(builder);
 
@@ -151,7 +152,7 @@ void mr_sparse_matrix_destroy(mr_sparse_matrix *mat) {
         return;
     }
 
-    MatDestroy(&mat->mat);
+    lis_matrix_destroy(mat->mat);
 
     free(mat->rows);
     free(mat->cols);
@@ -166,9 +167,9 @@ mr_dense_matrix *mr_dense_matrix_create(mr_float64 *arr, mr_int len) {
     mat->len = len;
     mat->data = arr;
 
-    if (VecCreateSeqWithArray(PETSC_COMM_SELF, 1, mat->len, mat->data, &mat->vec)) {
-        abort();
-    }
+    lis_vector_create(LIS_COMM_WORLD, &mat->vec);
+    lis_vector_set_size(mat->vec, 0, mat->len);
+    lis_vector_set(mat->vec, mat->data);
 
     return mat;
 }
@@ -178,7 +179,7 @@ void mr_dense_matrix_destroy(mr_dense_matrix *mat) {
         return;
     }
 
-    VecDestroy(&mat->vec);
+    lis_vector_destroy(mat->vec);
     free(mat->data);
     free(mat);
 }
@@ -190,7 +191,7 @@ mr_float64 *mr_dense_matrix_extract_data(mr_dense_matrix *mat) {
 
     mr_float64 *data = mat->data;
 
-    VecDestroy(&mat->vec);
+    lis_vector_destroy(mat->vec);
     free(mat);
 
     return data;

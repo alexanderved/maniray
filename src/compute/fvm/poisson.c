@@ -7,6 +7,7 @@
 #include "maniray/compute/fvm/interpolation.h"
 #include "maniray/compute/fvm/poisson.h"
 #include "maniray/compute/fvm/scalar.h"
+#include "maniray/compute/fvm/cell.h"
 #include "maniray/compute/matrix.h"
 
 mr_fvm_poisson *mr_fvm_poisson_create(
@@ -109,6 +110,12 @@ static int fill_discr_matrix(mr_ocforest *forest, mr_int cell_idx, void *userdat
                     store_cb,
                     mr_fvm_scalar_store_coef_cb_null()
                 );
+
+#ifndef DIRICHLET_BC_TEST
+                mr_sparse_row_clear(mat_data->temp_row);
+                res = mr_fvm_scalar_mark_inactive_cell(forest, cell_idx, store_cb);
+                break;
+#endif
             } else {
                 res = mr_fvm_scalar_calc_internal_flux(forest, cell_idx, dir, store_cb);
             }
@@ -191,7 +198,8 @@ static int fill_source_term_array(mr_ocforest *forest, mr_int cell_idx, void *us
         src_data->source_term_arr[col] = 0.0f;
     } else {
         mr_float value = src_data->poisson->source_fn ? src_data->poisson->source_fn(src_data->poisson, cell_idx) : 0.0f;
-        src_data->source_term_arr[col] = value;
+        mr_float volume = mr_cell_volume(forest, cell_idx);
+        src_data->source_term_arr[col] = value * volume;
     }
 
     return MR_SUCCESS;
@@ -222,49 +230,23 @@ int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson) {
 }
 
 int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
-    // TODO: Handle errors better
-    Vec x;
-    KSP ksp;
+    LIS_VECTOR x;
+    LIS_SOLVER solver;
 
-    Mat A = poisson->discr_mat->mat;
-    Vec b = poisson->source_terms->vec;
+    LIS_MATRIX A = poisson->discr_mat->mat;
+    LIS_VECTOR b = poisson->source_terms->vec;
 
-    if (VecDuplicate(b, &x)) abort();
-    if (VecSet(x, 0.0)) abort();
+    lis_vector_duplicate(b, &x);
 
-    if (KSPCreate(PETSC_COMM_SELF, &ksp)) abort();
-
-    // Required to make the matrix non-singular
-    MatNullSpace nsp;
-    MatNullSpaceCreate(PETSC_COMM_SELF, PETSC_TRUE, 0, NULL, &nsp);
-    MatSetNullSpace(A, nsp);
-    MatSetTransposeNullSpace(A, nsp);
-
-    if (KSPSetOperators(ksp, A, A)) abort();
-
-    if (KSPSetType(ksp, KSPGMRES)) abort();
-
-    /* PC pc;
-    if (KSPGetPC(ksp, &pc)) abort();
-    if (PCSetType(pc, PCGAMG)) abort(); */
-
-    if (KSPSetFromOptions(ksp)) abort();
-    if (KSPSolve(ksp, b, x)) abort();
-
-    const mr_float64 *res_arr;
-    if (VecGetArrayRead(x, &res_arr)) abort();
+    lis_solver_create(&solver);
+    lis_solver_set_option("-print 2 -i bicgstab -p ssor -tol 1.0e-6", solver);
+    lis_solve(A, b, x, solver);
 
     poisson->res = xmalloc(poisson->source_terms->len * sizeof(mr_float64));
-    memcpy(poisson->res, res_arr, poisson->source_terms->len * sizeof(mr_float64));
+    lis_vector_get_values(x, 0, poisson->source_terms->len, poisson->res);
 
-    if (VecRestoreArrayRead(x, &res_arr)) abort();
-
-    // if (VecView(x, PETSC_VIEWER_STDOUT_SELF)) abort();
-
-
-    MatNullSpaceDestroy(&nsp);
-    if (KSPDestroy(&ksp)) abort();
-    if (VecDestroy(&x)) abort();
+    lis_solver_destroy(solver);
+    lis_vector_destroy(x);
 
 
 #if 0

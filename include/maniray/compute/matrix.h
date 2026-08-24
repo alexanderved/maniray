@@ -3,7 +3,8 @@
 
 #include <stdbool.h>
 
-#include <petsc/petsc.h>
+#include "lis.h"
+LIS_INT lis_vector_set(LIS_VECTOR vec, LIS_SCALAR *value);
 
 #include "maniray/utils/types.h"
 
@@ -45,7 +46,7 @@ typedef struct mr_sparse_matrix {
     mr_int *cols;
     mr_int *rows;
 
-    Mat mat;
+    LIS_MATRIX mat;
 } mr_sparse_matrix;
 
 mr_sparse_matrix *mr_sparse_matrix_build(mr_sparse_matrix_builder *builder);
@@ -55,7 +56,7 @@ typedef struct mr_dense_matrix {
     mr_int len;
     mr_float64 *data;
 
-    Vec vec;
+    LIS_VECTOR vec;
 } mr_dense_matrix;
 
 mr_dense_matrix *mr_dense_matrix_create(mr_float64 *arr, mr_int len);

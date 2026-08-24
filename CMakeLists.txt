@@ -7,13 +7,15 @@ endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-find_package(MPI REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(PETSC REQUIRED IMPORTED_TARGET PETSc)
+find_package(OpenMP REQUIRED)
+
+set(LIS_ROOT "$ENV{HOME}/.local/lis")
+set(LIS_INCLUDE_DIR "${LIS_ROOT}/include")
+set(LIS_LIBRARY "${LIS_ROOT}/lib/liblis.a")
 
 find_package(glfw3 3.3 REQUIRED)
 find_package(OpenGL REQUIRED)
-set(LIBS m glfw OpenGL::GL GLAD MPI::MPI_C PkgConfig::PETSC)
+set(LIBS m glfw OpenGL::GL GLAD ${LIS_LIBRARY} OpenMP::OpenMP_C)
 
 add_subdirectory(external)
 add_subdirectory(src)

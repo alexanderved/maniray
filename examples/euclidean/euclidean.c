@@ -3,8 +3,6 @@
 #include <time.h>
 #include <math.h>
 
-#include <petsc/petsc.h>
-
 #include "maniray/display/engine.h"
 #include "maniray/display/camera.h"
 #include "maniray/display/uniform_buffer.h"
@@ -14,6 +12,7 @@
 #include "maniray/compute/manifold.h"
 #include "maniray/compute/octree.h"
 #include "maniray/compute/fvm/grid.h"
+#include "maniray/compute/fvm/cell.h"
 #include "maniray/compute/fvm/interpolation.h"
 #include "maniray/compute/fvm/poisson.h"
 
@@ -98,7 +97,7 @@ static mr_int point_cell_idx = 0;
 
 static mr_float source_test(mr_fvm_poisson *poisson, mr_int cell_idx) {
     if (cell_idx == point_cell_idx) {
-        return 1.0f;
+        return 1.0f / mr_cell_volume(poisson->forest, cell_idx);
     }
 
     return 0.0f;
@@ -368,7 +367,7 @@ int run_display() {
 }
 
 int main(int argc, char *argv[]) {
-    PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
+    lis_initialize(&argc, &argv);
 
 #define DISPLAY
 #ifdef DISPLAY
@@ -378,7 +377,7 @@ int main(int argc, char *argv[]) {
     mr_ocforest *forest = setup_ocforest(manifold);
 #endif
 
-    PetscCall(PetscFinalize());
+    lis_finalize();
 
     return 0;
 }
