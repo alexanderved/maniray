@@ -75,7 +75,7 @@ static bool area_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     MR_UNUSED(userdata);
 
     mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
-    return cell->x >= 0.0 && cell->y <= 0.0f && cell->z >= -1.0;
+    return cell->x >= -1.0 && cell->y <= 1.0f && cell->z >= -1.0 && cell->z <= 1.0;
 }
 
 static int interpolation_test(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
@@ -108,33 +108,20 @@ static mr_float value_min = 1e6f;
 static mr_float value_max = -1e6f;
 
 static int calc_bounds(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
-    mr_fvm_poisson *poisson = userdata;
+    MR_UNUSED(userdata);
 
-    mr_int code = mr_ocforest_get_code(forest, cell_idx);
-    size_t col = mr_code_map_get_index(poisson->code_map, code);
-
-    mr_float value = poisson->res[col];
-    value_min = MR_MIN(value_min, value);
-    value_max = MR_MAX(value_max, value);
+    mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
+    value_min = MR_MIN(value_min, sol->value);
+    value_max = MR_MAX(value_max, sol->value);
 
     return MR_SUCCESS;
 }
 
-static int write_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
-    mr_fvm_poisson *poisson = userdata;
+static int normalize_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    MR_UNUSED(userdata);
 
-    mr_int code = mr_ocforest_get_code(forest, cell_idx);
-    size_t col = mr_code_map_get_index(poisson->code_map, code);
-
-    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
-    mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
-
-    mr_float value = (poisson->res[col] - value_min) / (value_max - value_min);
-    node->value += value / 64.0f;
-
-    if (cell_idx == point_cell_idx) {
-        printf("Source Cell: %f\n", poisson->res[col]);
-    }
+    mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
+    sol->value = (sol->value - value_min) / (value_max - value_min);
 
     return MR_SUCCESS;
 }
@@ -213,8 +200,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
                  (end.tv_nsec - start.tv_nsec) / 1000;
 
-    mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(calc_bounds, poisson));
-    mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(write_eq_res, poisson));
+    mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(calc_bounds, NULL));
+    mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(normalize_eq_res, NULL));
 
     printf("Solve: %.2f ms\n", (double)elapsed_us / 1000.0);
 
@@ -336,6 +323,7 @@ int run_display() {
     mr_manifold *manifold = setup_manifold();
     mr_ocforest *forest = setup_ocforest(manifold);
 
+    // Octree nodes buffer
     mr_isize octree_nodes_size = mr_ocforest_nb_nodes_upper_bound(forest) * sizeof(mr_octree_node);
     mr_isize octree_buffer_size = sizeof(mr_uint) + octree_nodes_size;
     mr_storage_buffer *octree_buffer = mr_storage_buffer_create(0);
@@ -346,6 +334,11 @@ int run_display() {
     memcpy(octree_buffer_ptr, &nb_roots, sizeof(mr_uint));
     memcpy(octree_buffer_ptr + sizeof(mr_uint), mr_ocforest_get_node_array(forest), octree_nodes_size);
     mr_storage_buffer_unmap(octree_buffer);
+
+    // PDE solution buffer
+    mr_isize solution_size = mr_ocforest_nb_cells_upper_bound(forest) * sizeof(mr_fvm_poisson_solution);
+    mr_storage_buffer *solution_buffer = mr_storage_buffer_create(1);
+    mr_storage_buffer_alloc(solution_buffer, solution_size, MR_STATIC_DRAW, mr_ocforest_get_cell_extra_array(forest, MR_POISSON_SOLUTION_EXTRA_FIELD));
 
     update_userdata update_data = { window, camera, camera_buffer };
     
@@ -372,6 +365,7 @@ int run_display() {
 
     mr_program_destroy(compute_program);
 
+    mr_storage_buffer_destroy(solution_buffer);
     mr_storage_buffer_destroy(octree_buffer);
     mr_ocforest_destroy(forest);
 

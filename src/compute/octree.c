@@ -457,9 +457,9 @@ mr_int mr_octree_locate_point_in_cell(mr_ocforest *forest, mr_index octree_idx, 
     mr_float cell_dim = node->dim / MR_OCTREE_NODE_BLOCK_DIM;
 
     mr_int local_coords[] = {
-        (mr_int)floor((wp[0] - node->x + hdim) / cell_dim),
-        (mr_int)floor((wp[1] - node->y + hdim) / cell_dim),
-        (mr_int)floor((wp[2] - node->z + hdim) / cell_dim),
+        (mr_int)((wp[0] - node->x + hdim) / cell_dim),
+        (mr_int)((wp[1] - node->y + hdim) / cell_dim),
+        (mr_int)((wp[2] - node->z + hdim) / cell_dim),
     };
 
     local_coords[0] = MR_CLAMP(local_coords[0], 0, 3);

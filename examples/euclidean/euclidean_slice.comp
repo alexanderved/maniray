@@ -31,9 +31,17 @@ struct octree_node {
     float gradient[3];
 };
 
+struct solution {
+    float value;
+};
+
 layout (std430, binding = 0) buffer octree {
     uint nb_roots;
     octree_node nodes[];
+};
+
+layout (std430, binding = 1) buffer solutions {
+    solution sol[];
 };
 
 #define OCTREE_DIM 8.0
@@ -45,9 +53,9 @@ vec3 hsv2rgb(vec3 c) {
 }
 
 float vertical_coord() {
-    float z = time / 1.0;
-    z = z - floor(z / OCTREE_DIM) * OCTREE_DIM;
-    z -= OCTREE_DIM / 2.0;
+#define VC_BOUND (OCTREE_DIM / 2.0)
+    float z = time / 3.0;
+    z = mod(z, VC_BOUND) - VC_BOUND / 2.0;
 
     return z;
 }
@@ -69,6 +77,17 @@ bool is_inside_node(int node_idx, vec3 coords) {
     float hdim = nodes[node_idx].dim / 2.0;
 
     return ninf3(coords - center) <= hdim;
+}
+
+int choose_cell_in_node(int node_idx, vec3 coords) {
+    vec3 center = vec3(nodes[node_idx].x, nodes[node_idx].y, nodes[node_idx].z);
+    float hdim = nodes[node_idx].dim / 2.0;
+    float cell_dim = nodes[node_idx].dim / 4.0;
+
+    ivec3 local_coords = clamp(ivec3((coords - center + hdim) / cell_dim), 0, 3);
+    int local_idx = (local_coords.z << 4) + (local_coords.y << 2) + local_coords.x;
+
+    return nodes[node_idx].first_child + local_idx;
 }
 
 int find_node(int root_idx, vec3 coords) {
@@ -107,6 +126,7 @@ vec4 draw_octree_slice(vec2 xy) {
             }
 
             int idx = find_node(root_idx, coords);
+            int cell_idx = choose_cell_in_node(idx, coords);
 
             vec3 center = vec3(nodes[idx].x, nodes[idx].y, nodes[idx].z);
             float hdim = nodes[idx].dim / 2.0;
@@ -122,7 +142,8 @@ vec4 draw_octree_slice(vec2 xy) {
             }
 
             // float h = 50.0 * float(i + 1) / 355.0;
-            float h = nodes[idx].value;
+            // float h = nodes[idx].value;
+            float h = sol[cell_idx].value * 0.8;
             res = vec4(hsv2rgb(vec3(h, 1.0, 1.0)), 1.0);
         }
     }

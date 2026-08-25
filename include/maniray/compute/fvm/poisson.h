@@ -24,8 +24,6 @@ struct mr_fvm_poisson {
 
     mr_sparse_matrix *discr_mat;
     mr_vector *source_terms;
-
-    mr_float64 *res;
 };
 
 mr_fvm_poisson *mr_fvm_poisson_create(

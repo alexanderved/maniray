@@ -29,7 +29,6 @@ mr_fvm_poisson *mr_fvm_poisson_create(
 
     poisson->discr_mat = NULL;
     poisson->source_terms = NULL;
-    poisson->res = NULL;
 
     return poisson;
 }
@@ -39,7 +38,6 @@ void mr_fvm_poisson_destroy(mr_fvm_poisson *poisson) {
         return;
     }
 
-    free(poisson->res);
     mr_vector_destroy(poisson->source_terms);
     mr_sparse_matrix_destroy(poisson->discr_mat);
 
@@ -109,7 +107,8 @@ static int fill_discr_matrix(mr_ocforest *forest, mr_int cell_idx, void *userdat
                     mr_fvm_scalar_store_coef_cb_null()
                 );
 
-#ifndef DIRICHLET_BC_TEST
+#define DIRICHLET_BC_TEST
+#ifdef DIRICHLET_BC_TEST
                 mr_sparse_row_clear(mat_data->temp_row);
                 res = mr_fvm_scalar_mark_inactive_cell(forest, cell_idx, store_cb);
                 break;
@@ -217,6 +216,26 @@ int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson) {
     return MR_SUCCESS;
 }
 
+typedef struct store_solution_userdata {
+    mr_fvm_poisson *poisson;
+    LIS_VECTOR x;
+} store_solution_userdata;
+
+static int store_solution(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    store_solution_userdata *ud = userdata;
+
+    mr_int code = mr_ocforest_get_code(forest, cell_idx);
+    size_t col = mr_code_map_get_index(ud->poisson->code_map, code);
+
+    mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
+
+    double value = 0.0;
+    int res = lis_vector_get_value(ud->x, col, &value);
+    sol->value = value;
+
+    return res == LIS_SUCCESS ? MR_SUCCESS : MR_FAILURE;
+}
+
 int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
     LIS_VECTOR x;
     LIS_SOLVER solver;
@@ -227,12 +246,15 @@ int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
     lis_vector_duplicate(b, &x);
     lis_vector_copy(b, x);
 
+    // Move to solver.c
     lis_solver_create(&solver);
     lis_solver_set_option("-print 2 -i bicgstab -p ssor -tol 1.0e-6", solver);
     lis_solve(A, b, x, solver);
 
-    poisson->res = xmalloc(poisson->source_terms->len * sizeof(mr_float64));
-    lis_vector_get_values(x, 0, poisson->source_terms->len, poisson->res);
+    store_solution_userdata ud = { poisson, x };
+    for (mr_index octree_idx = 0; (size_t)octree_idx < poisson->forest->nb_roots; ++octree_idx) {
+        mr_octree_cells_apply(poisson->forest, octree_idx, mr_octree_apply_cb_create(store_solution, &ud));
+    }
 
     lis_solver_destroy(solver);
     lis_vector_destroy(x);
