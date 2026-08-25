@@ -3,8 +3,8 @@
 
 #include <stdbool.h>
 
-#define MR_FAILURE 0
-#define MR_SUCCESS 1
+#define MR_SUCCESS 0
+#define MR_FAILURE 1
 
 #define MR_UNUSED(x) ((void)(x))
 

@@ -42,14 +42,14 @@ int run_display() {
         printf("Failed to create a window\n");
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
 
-    if (!mr_engine_init(window)) {
+    if (mr_engine_init(window) != MR_SUCCESS) {
         printf("Failed to initialize GLAD\n");
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
     
     mr_engine *engine = mr_engine_create(window);
@@ -60,7 +60,7 @@ int run_display() {
         mr_window_destroy(window);
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
 
     mr_uniform_buffer *camera_buffer = mr_uniform_buffer_create(2, sizeof(mr_camera_info), MR_DYNAMIC_DRAW);
@@ -70,7 +70,7 @@ int run_display() {
         mr_window_destroy(window);
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
 
     mr_camera_info camera_info = mr_camera_get_info(camera);
@@ -107,7 +107,7 @@ int run_display() {
         mr_window_destroy(window);
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
     
     // mr_window_set_cursor_hidden(window, true);
@@ -125,7 +125,7 @@ int run_display() {
     mr_window_destroy(window);
     mr_window_terminate();
 
-    return 0;
+    return MR_SUCCESS;
 }
 
 int main() {

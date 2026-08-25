@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <tgmath.h>
 
 #include "maniray/utils/xmalloc.h"
 #include "maniray/compute/fvm/boundary.h"
@@ -8,7 +7,6 @@
 #include "maniray/compute/fvm/poisson.h"
 #include "maniray/compute/fvm/scalar.h"
 #include "maniray/compute/fvm/cell.h"
-#include "maniray/compute/matrix.h"
 
 mr_fvm_poisson *mr_fvm_poisson_create(
     mr_manifold *manifold,
@@ -42,7 +40,7 @@ void mr_fvm_poisson_destroy(mr_fvm_poisson *poisson) {
     }
 
     free(poisson->res);
-    mr_dense_matrix_destroy(poisson->source_terms);
+    mr_vector_destroy(poisson->source_terms);
     mr_sparse_matrix_destroy(poisson->discr_mat);
 
     mr_code_map_destroy(poisson->code_map);
@@ -162,16 +160,6 @@ int mr_fvm_poisson_build_discretization_matrix(mr_fvm_poisson *poisson) {
         }
     }
 
-#if 0
-    for (mr_int i = 0; i < mat_data.matrix_builder->dim; ++i) {
-        printf("Row %d: ", i);
-        for (mr_int j = mat_data.matrix_builder->rows[i]; j < mat_data.matrix_builder->rows[i + 1]; ++j) {
-            printf("%d: %f\t", mat_data.matrix_builder->cols[j], mat_data.matrix_builder->values[j]);
-        }
-        printf("\n");
-    }
-#endif
-
     poisson->discr_mat = mr_sparse_matrix_build(mat_data.matrix_builder);
 
     mat_data.matrix_builder = NULL;
@@ -224,7 +212,7 @@ int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson) {
         }
     }
 
-    poisson->source_terms = mr_dense_matrix_create(st_data.source_term_arr, poisson->code_map->len);
+    poisson->source_terms = mr_vector_create(st_data.source_term_arr, poisson->code_map->len);
 
     return MR_SUCCESS;
 }
@@ -233,10 +221,11 @@ int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
     LIS_VECTOR x;
     LIS_SOLVER solver;
 
-    LIS_MATRIX A = poisson->discr_mat->mat;
-    LIS_VECTOR b = poisson->source_terms->vec;
+    LIS_MATRIX A = poisson->discr_mat->inner;
+    LIS_VECTOR b = poisson->source_terms->inner;
 
     lis_vector_duplicate(b, &x);
+    lis_vector_copy(b, x);
 
     lis_solver_create(&solver);
     lis_solver_set_option("-print 2 -i bicgstab -p ssor -tol 1.0e-6", solver);
@@ -247,13 +236,6 @@ int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
 
     lis_solver_destroy(solver);
     lis_vector_destroy(x);
-
-
-#if 0
-    for (mr_int i = 0; i < poisson->discr_mat->dim; ++i) {
-        printf("%d: %f\n", i, poisson->res[i]);
-    }
-#endif
 
     return MR_SUCCESS;
 }

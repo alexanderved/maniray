@@ -32,7 +32,7 @@ static GLuint compile_shader(const char *source, GLenum type) {
 
         glDeleteShader(shader);
 
-        return MR_FAILURE;
+        return -1;
     }
 
     return shader;
@@ -57,7 +57,7 @@ static GLuint link_program(GLuint *shader_ids, int nb_shaders) {
 
         glDeleteProgram(program);
 
-        return MR_FAILURE;
+        return -1;
     }
 
     return program;
@@ -70,7 +70,7 @@ mr_program *mr_program_create(mr_shader_source *shaders, int nb_shaders) {
     for (int i = 0; i < nb_shaders; ++i) {
         shader_ids[i] = compile_shader(shaders[i].source, SHADER_TYPE_CONVERT[shaders[i].type]);
 
-        if (shader_ids[i] == MR_FAILURE) {
+        if (shader_ids[i] == (GLuint)-1) {
             for (int j = 0; j < i; ++j) {
                 glDeleteShader(shader_ids[j]);
             }
@@ -89,7 +89,7 @@ mr_program *mr_program_create(mr_shader_source *shaders, int nb_shaders) {
     free(shader_ids);
     shader_ids = NULL;
 
-    if (program->program == MR_FAILURE) {
+    if (program->program == (GLuint)-1) {
         free(program);
 
         return NULL;

@@ -346,7 +346,7 @@ static int mr_octree_leaves_apply_ext(mr_ocforest *forest, mr_index octree_idx, 
         child_idx = parent->first_child + path[level];
         saved_flags = mr_ocforest_get_node(forest, child_idx)->flags;
         if (saved_flags & MR_OCTREE_NODE_FLAG_LEAF) {
-            if (apply.fn(forest, child_idx, apply.userdata) == MR_FAILURE) {
+            if (apply.fn(forest, child_idx, apply.userdata) != MR_SUCCESS) {
                 return MR_FAILURE;
             }
         }

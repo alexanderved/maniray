@@ -1,10 +1,9 @@
-#ifndef _MR_SPARSE_MATRIX_H
-#define _MR_SPARSE_MATRIX_H
+#ifndef _MR_LIN_SYS_MATRIX_H
+#define _MR_LIN_SYS_MATRIX_H
 
 #include <stdbool.h>
 
-#include "lis.h"
-LIS_INT lis_vector_set(LIS_VECTOR vec, LIS_SCALAR *value);
+#include <lis.h>
 
 #include "maniray/utils/types.h"
 
@@ -46,22 +45,10 @@ typedef struct mr_sparse_matrix {
     mr_int *cols;
     mr_int *rows;
 
-    LIS_MATRIX mat;
+    LIS_MATRIX inner;
 } mr_sparse_matrix;
 
 mr_sparse_matrix *mr_sparse_matrix_build(mr_sparse_matrix_builder *builder);
 void mr_sparse_matrix_destroy(mr_sparse_matrix *mat);
 
-typedef struct mr_dense_matrix {
-    mr_int len;
-    mr_float64 *data;
-
-    LIS_VECTOR vec;
-} mr_dense_matrix;
-
-mr_dense_matrix *mr_dense_matrix_create(mr_float64 *arr, mr_int len);
-void mr_dense_matrix_destroy(mr_dense_matrix *mat);
-
-mr_float64 *mr_dense_matrix_extract_data(mr_dense_matrix *mat);
-
-#endif // _MR_SPARSE_MATRIX_H
+#endif // _MR_LIN_SYS_MATRIX_H

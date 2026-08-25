@@ -4,7 +4,8 @@
 #include "maniray/compute/manifold.h"
 #include "maniray/compute/octree.h"
 #include "maniray/compute/codes.h"
-#include "maniray/compute/matrix.h"
+#include "maniray/compute/linear_system/matrix.h"
+#include "maniray/compute/linear_system/vector.h"
 
 #define MR_POISSON_SOLUTION_EXTRA_FIELD 1
 
@@ -22,7 +23,7 @@ struct mr_fvm_poisson {
     mr_code_map *code_map;
 
     mr_sparse_matrix *discr_mat;
-    mr_dense_matrix *source_terms;
+    mr_vector *source_terms;
 
     mr_float64 *res;
 };

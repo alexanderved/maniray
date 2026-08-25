@@ -32,7 +32,7 @@ int mr_engine_init(mr_window *window) {
     glfwMakeContextCurrent(window->glfw_window);
     glfwSwapInterval(0);
 
-    return gladLoadGL((GLADloadfunc)glfwGetProcAddress);
+    return gladLoadGL((GLADloadfunc)glfwGetProcAddress) != 0 ? MR_SUCCESS : MR_FAILURE;
 }
 
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height) {

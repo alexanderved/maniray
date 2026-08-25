@@ -42,7 +42,7 @@ bool mr_is_boundary_cell(mr_ocforest *forest, mr_int cell_idx, mr_direction dir)
     }
     mr_octree_node *root_node = mr_ocforest_get_node(forest, root->node_idx);
 
-    mr_float cell_coord, root_coord;
+    mr_float cell_coord = 0.0f, root_coord = 0.0f;
     GET_COORD(cell_coord, cell, axis);
     GET_COORD(root_coord, root_node, axis);
 

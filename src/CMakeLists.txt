@@ -1,4 +1,5 @@
-add_library(maniray STATIC)
+add_library(maniray STATIC
+    maniray.c)
 
 add_subdirectory(display)
 add_subdirectory(utils)
@@ -12,10 +13,10 @@ target_compile_options(maniray PUBLIC
 )
 # target_link_options(maniray PUBLIC -fsanitize=address -fsanitize=leak)
 
-target_link_libraries(maniray ${LIBS})
+target_link_libraries(maniray PUBLIC ${LIBS})
 
 target_include_directories(maniray PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(maniray PUBLIC ${PROJECT_SOURCE_DIR}/external)
-target_include_directories(maniray PUBLIC ${LIS_INCLUDE_DIR})
+target_include_directories(maniray PUBLIC ${PROJECT_SOURCE_DIR}/external/lis/include)
 
 set_property(TARGET maniray PROPERTY C_STANDARD 11)

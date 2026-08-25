@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <string.h>
 
-#include "maniray/compute/matrix.h"
+#include "maniray/compute/linear_system/matrix.h"
 #include "maniray/utils/xmalloc.h"
 #include "maniray/utils/algorithm.h"
 
@@ -137,10 +137,10 @@ mr_sparse_matrix *mr_sparse_matrix_build(mr_sparse_matrix_builder *builder) {
     mat->cols = builder->cols;
     mat->rows = builder->rows;
 
-    lis_matrix_create(LIS_COMM_WORLD, &mat->mat);
-    lis_matrix_set_size(mat->mat, 0, mat->dim);
-    lis_matrix_set_csr(mat->rows[mat->dim], mat->rows, mat->cols, mat->values, mat->mat);
-    lis_matrix_assemble(mat->mat);
+    lis_matrix_create(LIS_COMM_WORLD, &mat->inner);
+    lis_matrix_set_size(mat->inner, 0, mat->dim);
+    lis_matrix_set_csr(mat->rows[mat->dim], mat->rows, mat->cols, mat->values, mat->inner);
+    lis_matrix_assemble(mat->inner);
 
     free(builder);
 
@@ -152,47 +152,11 @@ void mr_sparse_matrix_destroy(mr_sparse_matrix *mat) {
         return;
     }
 
-    lis_matrix_destroy(mat->mat);
+    lis_matrix_destroy(mat->inner);
 
     free(mat->rows);
     free(mat->cols);
     free(mat->values);
 
     free(mat);
-}
-
-mr_dense_matrix *mr_dense_matrix_create(mr_float64 *arr, mr_int len) {
-    mr_dense_matrix *mat = xmalloc(sizeof(mr_dense_matrix));
-
-    mat->len = len;
-    mat->data = arr;
-
-    lis_vector_create(LIS_COMM_WORLD, &mat->vec);
-    lis_vector_set_size(mat->vec, 0, mat->len);
-    lis_vector_set(mat->vec, mat->data);
-
-    return mat;
-}
-
-void mr_dense_matrix_destroy(mr_dense_matrix *mat) {
-    if (!mat) {
-        return;
-    }
-
-    lis_vector_destroy(mat->vec);
-    free(mat->data);
-    free(mat);
-}
-
-mr_float64 *mr_dense_matrix_extract_data(mr_dense_matrix *mat) {
-    if (!mat) {
-        return NULL;
-    }
-
-    mr_float64 *data = mat->data;
-
-    lis_vector_destroy(mat->vec);
-    free(mat);
-
-    return data;
 }

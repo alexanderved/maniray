@@ -3,6 +3,7 @@
 #include <time.h>
 #include <math.h>
 
+#include "maniray/maniray.h"
 #include "maniray/display/engine.h"
 #include "maniray/display/camera.h"
 #include "maniray/display/uniform_buffer.h"
@@ -103,6 +104,22 @@ static mr_float source_test(mr_fvm_poisson *poisson, mr_int cell_idx) {
     return 0.0f;
 }
 
+static mr_float value_min = 1e6f;
+static mr_float value_max = -1e6f;
+
+static int calc_bounds(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    mr_fvm_poisson *poisson = userdata;
+
+    mr_int code = mr_ocforest_get_code(forest, cell_idx);
+    size_t col = mr_code_map_get_index(poisson->code_map, code);
+
+    mr_float value = poisson->res[col];
+    value_min = MR_MIN(value_min, value);
+    value_max = MR_MAX(value_max, value);
+
+    return MR_SUCCESS;
+}
+
 static int write_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     mr_fvm_poisson *poisson = userdata;
 
@@ -112,11 +129,12 @@ static int write_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
     mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
 
-    if (cell_idx == point_cell_idx) {
-        printf("Main cell: %f\n", poisson->res[col]);
-    }
+    mr_float value = (poisson->res[col] - value_min) / (value_max - value_min);
+    node->value += value / 64.0f;
 
-    node->value += poisson->res[col] / 64.0f;
+    if (cell_idx == point_cell_idx) {
+        printf("Source Cell: %f\n", poisson->res[col]);
+    }
 
     return MR_SUCCESS;
 }
@@ -195,6 +213,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
                  (end.tv_nsec - start.tv_nsec) / 1000;
 
+    mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(calc_bounds, poisson));
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(write_eq_res, poisson));
 
     printf("Solve: %.2f ms\n", (double)elapsed_us / 1000.0);
@@ -280,14 +299,14 @@ int run_display() {
         printf("Failed to create a window\n");
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
 
-    if (!mr_engine_init(window)) {
+    if (mr_engine_init(window) != MR_SUCCESS) {
         printf("Failed to initialize GLAD\n");
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
     
     mr_engine *engine = mr_engine_create(window);
@@ -298,7 +317,7 @@ int run_display() {
         mr_window_destroy(window);
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
 
     mr_uniform_buffer *camera_buffer = mr_uniform_buffer_create(2, sizeof(mr_camera_info), MR_DYNAMIC_DRAW);
@@ -308,7 +327,7 @@ int run_display() {
         mr_window_destroy(window);
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
 
     mr_camera_info camera_info = mr_camera_get_info(camera);
@@ -345,7 +364,7 @@ int run_display() {
         mr_window_destroy(window);
         mr_window_terminate();
 
-        return -1;
+        return MR_FAILURE;
     }
     
     // mr_window_set_cursor_hidden(window, true);
@@ -363,11 +382,11 @@ int run_display() {
     mr_window_destroy(window);
     mr_window_terminate();
 
-    return 0;
+    return MR_SUCCESS;
 }
 
 int main(int argc, char *argv[]) {
-    lis_initialize(&argc, &argv);
+    mr_initialize(&argc, &argv);
 
 #define DISPLAY
 #ifdef DISPLAY
@@ -377,7 +396,7 @@ int main(int argc, char *argv[]) {
     mr_ocforest *forest = setup_ocforest(manifold);
 #endif
 
-    lis_finalize();
+    mr_finalize();
 
     return 0;
 }

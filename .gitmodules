@@ -1,0 +1,3 @@
+[submodule "external/lis"]
+	path = external/lis
+	url = https://github.com/anishida/lis.git
