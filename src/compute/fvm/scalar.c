@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <math.h>
+#include <stdio.h>
 
 #include "maniray/compute/fvm/scalar.h"
 #include "maniray/compute/fvm/interpolation.h"
@@ -58,23 +59,69 @@ int mr_fvm_scalar_interpolate(mr_ocforest *forest, mr_int cell_idx, mr_fvm_scala
 
 int mr_fvm_scalar_calc_boundary_flux(
     mr_ocforest *forest,
+    mr_boundary_condition *bc,
     mr_int cell_idx,
-    mr_boundary_condition *cond,
     mr_direction dir,
     mr_fvm_scalar_store_coef_cb store_implicit,
     mr_fvm_scalar_store_coef_cb store_source
 ) {
     assert(forest);
     assert(cell_idx != MR_INVALID_INDEX);
-    // assert(cond);
+    assert(bc);
 
-    MR_UNUSED(cond);
-    MR_UNUSED(dir);
-    MR_UNUSED(store_implicit);
-    MR_UNUSED(store_source);
+    switch (mr_boundary_condition_get_type(bc, cell_idx, dir)) {
+        // Direchlet BC is implemented using second-order one-sided finite differences
+        case MR_BC_DIRICHLET: ;
+            mr_axis axis = mr_direction_get_axis(dir);
+            mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
 
-    // TODO: Implement different boundary conditions
-    //       Currently using Neumann boundary conditions with flux = 0
+            // TODO: Move to helper function in cell.h
+            mr_float face_center[] = { cell->x, cell->y, cell->z };
+            face_center[axis] += mr_direction_get_sign_mul(dir) * cell->dim / 2.0f;
+
+            // TODO: Create helper function to calculate derivatives
+            mr_float sqrt_inv_coef = sqrtf(mr_manifold_inv_metric(forest->manifold, cell->chart_idx, face_center, axis, axis));
+            mr_float area = mr_cell_face_area(forest, cell_idx, dir);
+
+            if (!mr_fvm_scalar_store_coef_cb_is_null(store_implicit)) {
+                mr_octree_cell_neighbor cell_neighbor = mr_octree_find_face_neighbor_cells(forest, cell_idx, mr_direction_reflect(dir));
+                assert(cell_neighbor.type == MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE);
+
+                // TODO: Handle non-orthogonal curvilinear coordinates
+                mr_float cell_coef = -sqrt_inv_coef * 3.0f / cell->dim * area;
+                mr_float neighbor_coef = sqrt_inv_coef * 1.0f / (3.0f * cell->dim) * area;
+
+                store_implicit.fn(forest, cell_idx, cell_coef, store_implicit.userdata);
+                store_implicit.fn(forest, cell_neighbor.neighbor_idx, neighbor_coef, store_implicit.userdata);
+            }
+
+            if (!mr_fvm_scalar_store_coef_cb_is_null(store_source)) {
+                mr_float value = 0.0f;
+                mr_boundary_condition_get_value(bc, cell_idx, dir, &value);
+
+                mr_float coef = sqrt_inv_coef * 8.0f * value / (3.0f * cell->dim) * area;
+                // Add minus sign because this term is moved over the equal sign to the rhs
+                store_source.fn(forest, cell_idx, -coef, store_source.userdata);
+            }
+
+            break;
+
+        case MR_BC_NEUMANN:
+            if (!mr_fvm_scalar_store_coef_cb_is_null(store_source)) {
+                mr_float area = mr_cell_face_area(forest, cell_idx, dir);
+                mr_float value = 0.0f;
+                mr_boundary_condition_get_value(bc, cell_idx, dir, &value);
+
+                mr_float coef = value * area;
+                // Add minus sign because this term is moved over the equal sign to the rhs
+                store_source.fn(forest, cell_idx, -coef, store_source.userdata);
+            }
+
+            break;
+
+        default:
+            assert(false);
+    }
 
     return MR_SUCCESS;
 }

@@ -1,6 +1,8 @@
 #include <assert.h>
 #include <tgmath.h>
+#include <string.h>
 
+#include "maniray/utils/xmalloc.h"
 #include "maniray/compute/fvm/boundary.h"
 #include "maniray/compute/fvm/grid.h"
 
@@ -21,7 +23,7 @@ bool mr_is_boundary_cell(mr_ocforest *forest, mr_int cell_idx, mr_direction dir)
     assert(cell_idx != MR_INVALID_INDEX);
 
     mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
-    if (discr_data->type != MR_CELL_TYPE_BOUNDARY) {
+    if (discr_data->type != MR_CELL_TYPE_BOUNDARY && discr_data->type != MR_CELL_TYPE_NONE) {
         return false;
     }
 
@@ -50,4 +52,60 @@ bool mr_is_boundary_cell(mr_ocforest *forest, mr_int cell_idx, mr_direction dir)
     mr_float root_face = root_coord + sign_mul * root_node->dim / 2.0f;
 
     return fabs(cell_face - root_face) <= EPSILON;
+}
+
+mr_boundary_condition *mr_boundary_condition_create(
+    mr_ocforest *forest,
+    mr_boundary_condition_type types[][MR_NB_DIRECTIONS],
+    mr_boundary_condition_fn fns[]
+) {
+    assert(forest);
+    assert(types);
+    assert(fns);
+
+    mr_boundary_condition *bc = xmalloc(sizeof(mr_boundary_condition));
+
+    bc->forest = forest;
+    bc->types = xmalloc(forest->nb_roots * MR_NB_DIRECTIONS * sizeof(mr_boundary_condition_type));
+    bc->fns = xmalloc(forest->nb_roots * sizeof(mr_boundary_condition_fn));
+
+    for (size_t i = 0; i < forest->nb_roots; ++i) {
+        memcpy(bc->types + i * MR_NB_DIRECTIONS, types[i], MR_NB_DIRECTIONS * sizeof(mr_boundary_condition_type));
+    }
+    memcpy(bc->fns, fns, forest->nb_roots * sizeof(mr_boundary_condition_fn));
+
+    return bc;
+}
+
+void mr_boundary_condition_destroy(mr_boundary_condition *bc) {
+    if (!bc) {
+        return;
+    }
+
+    free(bc->fns);
+    free(bc->types);
+
+    free(bc);
+}
+
+mr_boundary_condition_type mr_boundary_condition_get_type(mr_boundary_condition *bc, mr_int cell_idx, mr_direction dir) {
+    assert(bc);
+    assert(cell_idx != MR_INVALID_INDEX);
+
+    mr_octree_cell *cell = mr_ocforest_get_cell(bc->forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(bc->forest, cell->parent);
+    mr_int octree_idx = node->root;
+
+    return bc->types[octree_idx * MR_NB_DIRECTIONS + dir];
+}
+
+void mr_boundary_condition_get_value(mr_boundary_condition *bc, mr_int cell_idx, mr_direction dir, void *out) {
+    assert(bc);
+    assert(out);
+    assert(cell_idx != MR_INVALID_INDEX);
+
+    mr_octree_cell *cell = mr_ocforest_get_cell(bc->forest, cell_idx);
+    mr_octree_node *node = mr_ocforest_get_node(bc->forest, cell->parent);
+
+    bc->fns[node->root](bc, cell_idx, dir, out);
 }

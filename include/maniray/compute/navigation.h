@@ -25,6 +25,8 @@ typedef enum mr_sign {
     MR_SIGN_PLUS = 1,
 } mr_sign;
 
+#define MR_NB_DIRECTIONS 6
+
 typedef enum mr_direction {
     MR_DIRECTION_MI_X = 0,
     MR_DIRECTION_PL_X = 1,

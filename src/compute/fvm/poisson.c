@@ -1,31 +1,22 @@
+#include <assert.h>
 #include <stdio.h>
 
 #include "maniray/utils/xmalloc.h"
-#include "maniray/compute/fvm/boundary.h"
+#include "maniray/compute/math.h"
 #include "maniray/compute/fvm/grid.h"
 #include "maniray/compute/fvm/interpolation.h"
 #include "maniray/compute/fvm/poisson.h"
 #include "maniray/compute/fvm/scalar.h"
 #include "maniray/compute/fvm/cell.h"
 
-mr_fvm_poisson *mr_fvm_poisson_create(
-    mr_manifold *manifold,
-    mr_octree_root_desc roots[],
-    size_t nb_roots,
-    mr_fvm_poisson_source_fn source_fn
-) {
+mr_fvm_poisson *mr_fvm_poisson_create() {
     mr_fvm_poisson *poisson = xmalloc(sizeof(mr_fvm_poisson));
 
-    poisson->source_fn = source_fn;
-
-    poisson->forest = mr_ocforest_create(
-        manifold,
-        roots,
-        nb_roots,
-        (size_t[]) { sizeof(mr_discretization_data), sizeof(mr_fvm_poisson_solution) },
-        2
-    );
+    poisson->forest = NULL;
     poisson->code_map = NULL;
+
+    poisson->source_fn = NULL;
+    poisson->bc = NULL;
 
     poisson->discr_mat = NULL;
     poisson->source_terms = NULL;
@@ -41,14 +32,66 @@ void mr_fvm_poisson_destroy(mr_fvm_poisson *poisson) {
     mr_vector_destroy(poisson->source_terms);
     mr_sparse_matrix_destroy(poisson->discr_mat);
 
+    mr_boundary_condition_destroy(poisson->bc);
+
     mr_code_map_destroy(poisson->code_map);
     mr_ocforest_destroy(poisson->forest);
 
     free(poisson);
 }
 
-mr_ocforest *mr_fvm_poisson_get_ocforest(mr_fvm_poisson *poisson) {
-    return poisson ? poisson->forest : NULL;
+mr_ocforest *mr_fvm_poisson_ocforest_initialize(
+    mr_fvm_poisson *poisson,
+    mr_manifold *manifold,
+    mr_octree_root_desc roots[],
+    size_t nb_roots
+) {
+    assert(poisson);
+
+    mr_code_map_destroy(poisson->code_map);
+    poisson->code_map = NULL;
+
+    mr_boundary_condition_destroy(poisson->bc);
+    poisson->bc = NULL;
+
+    mr_ocforest_destroy(poisson->forest);
+    poisson->forest = mr_ocforest_create(
+        manifold,
+        roots,
+        nb_roots,
+        (size_t[]) { sizeof(mr_discretization_data), sizeof(mr_fvm_poisson_solution) },
+        2
+    );
+
+    return poisson->forest;
+}
+
+mr_ocforest *mr_fvm_poisson_ocforest_update(mr_fvm_poisson *poisson) {
+    assert(poisson);
+
+    mr_code_map_destroy(poisson->code_map);
+    poisson->code_map = NULL;
+
+    return poisson->forest;
+}
+
+void mr_fvm_poisson_ocforest_finalize(mr_fvm_poisson *poisson) {
+    assert(poisson);
+
+    poisson->code_map = mr_code_map_create_from_ocforest(poisson->forest);
+}
+
+void mr_fvm_poisson_set_source_term_fn(mr_fvm_poisson *poisson, mr_fvm_poisson_source_fn source_fn) {
+    assert(poisson);
+
+    poisson->source_fn = source_fn;
+}
+
+void mr_fvm_poisson_set_boundary_condition(mr_fvm_poisson *poisson, mr_boundary_condition *bc) {
+    assert(poisson);
+
+    mr_boundary_condition_destroy(poisson->bc);
+    poisson->bc = bc;
 }
 
 typedef struct discr_matrix_data {
@@ -70,16 +113,15 @@ static void discr_matrix_data_destroy(discr_matrix_data *data) {
     mr_sparse_row_destroy(data->temp_row);
 }
 
-static int write_coef(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
+static int write_matrix_coef(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
     discr_matrix_data *mat_data = userdata;
 
     mr_int code = mr_ocforest_get_code(forest, cell_idx);
     size_t col = mr_code_map_get_index(mat_data->poisson->code_map, code);
 
-    // printf("%d: %d\n", cell_idx, code);
-
     mr_float prev = mr_sparse_row_get(mat_data->temp_row, col);
-    mr_sparse_row_set(mat_data->temp_row, col, prev + coef);
+    // Subtract the coefficient so the matrix has the positive diagonal
+    mr_sparse_row_set(mat_data->temp_row, col, prev - coef);
 
     return MR_SUCCESS;
 }
@@ -88,7 +130,7 @@ static int fill_discr_matrix(mr_ocforest *forest, mr_int cell_idx, void *userdat
     discr_matrix_data *mat_data = userdata;
 
     mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
-    mr_fvm_scalar_store_coef_cb store_cb = mr_fvm_scalar_store_coef_cb_create(write_coef, mat_data);
+    mr_fvm_scalar_store_coef_cb store_cb = mr_fvm_scalar_store_coef_cb_create(write_matrix_coef, mat_data);
 
     int res = MR_SUCCESS;
     if (discr_data->type == MR_CELL_TYPE_EXTERIOR) {
@@ -100,19 +142,12 @@ static int fill_discr_matrix(mr_ocforest *forest, mr_int cell_idx, void *userdat
             if (mr_is_boundary_cell(forest, cell_idx, dir)) {
                 res = mr_fvm_scalar_calc_boundary_flux(
                     forest,
+                    mat_data->poisson->bc,
                     cell_idx,
-                    NULL,
                     dir,
                     store_cb,
                     mr_fvm_scalar_store_coef_cb_null()
                 );
-
-#define DIRICHLET_BC_TEST
-#ifdef DIRICHLET_BC_TEST
-                mr_sparse_row_clear(mat_data->temp_row);
-                res = mr_fvm_scalar_mark_inactive_cell(forest, cell_idx, store_cb);
-                break;
-#endif
             } else {
                 res = mr_fvm_scalar_calc_internal_flux(forest, cell_idx, dir, store_cb);
             }
@@ -134,14 +169,7 @@ static int fill_discr_matrix(mr_ocforest *forest, mr_int cell_idx, void *userdat
 }
 
 int mr_fvm_poisson_build_discretization_matrix(mr_fvm_poisson *poisson) {
-    if (!poisson) {
-        return MR_FAILURE;
-    }
-
-    // TODO: create functions to start and end building octree and move this code there
-    if (!poisson->code_map) {
-        poisson->code_map = mr_code_map_create_from_ocforest(poisson->forest);
-    }
+    assert(poisson);
 
     discr_matrix_data mat_data;
     discr_matrix_data_create(poisson, &mat_data);
@@ -173,26 +201,57 @@ typedef struct source_term_data {
     mr_float64 *source_term_arr;
 } source_term_data;
 
-// TODO: Add boundary handling
-static int fill_source_term_array(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+static int write_rhs_coef(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
     source_term_data *src_data = userdata;
 
     mr_int code = mr_ocforest_get_code(forest, cell_idx);
     size_t col = mr_code_map_get_index(src_data->poisson->code_map, code);
 
+    // Subtract the coefficient to account for the matrix having a positive diagonal
+    src_data->source_term_arr[col] -= coef;
+
+    return MR_SUCCESS;
+}
+
+static int fill_source_term_array(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    source_term_data *src_data = userdata;
+
     mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
     if (discr_data->type == MR_CELL_TYPE_EXTERIOR || discr_data->type == MR_CELL_TYPE_INTERPOLATION) {
-        src_data->source_term_arr[col] = 0.0f;
+        write_rhs_coef(forest, cell_idx, 0.0, src_data);
     } else {
-        mr_float value = src_data->poisson->source_fn ? src_data->poisson->source_fn(src_data->poisson, cell_idx) : 0.0f;
+        mr_fvm_scalar_store_coef_cb store_cb = mr_fvm_scalar_store_coef_cb_create(write_rhs_coef, src_data);
+        for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
+            if (!mr_is_boundary_cell(forest, cell_idx, dir)) {
+                continue;
+            }
+
+            int res = mr_fvm_scalar_calc_boundary_flux(
+                forest,
+                src_data->poisson->bc,
+                cell_idx,
+                dir,
+                mr_fvm_scalar_store_coef_cb_null(),
+                store_cb
+            );
+
+            if (res != MR_SUCCESS) {
+                return res;
+            }
+        }
+
+        mr_float value = src_data->poisson->source_fn ? src_data->poisson->source_fn(src_data->poisson, cell_idx)
+                                                      : 0.0f;
         mr_float volume = mr_cell_volume(forest, cell_idx);
-        src_data->source_term_arr[col] = value * volume;
+        write_rhs_coef(forest, cell_idx, value * volume, src_data);
     }
 
     return MR_SUCCESS;
 }
 
 int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson) {
+    assert(poisson);
+
     source_term_data st_data;
     st_data.poisson = poisson;
     st_data.source_term_arr = xmalloc(poisson->code_map->len * sizeof(mr_float64));
@@ -237,6 +296,8 @@ static int store_solution(mr_ocforest *forest, mr_int cell_idx, void *userdata) 
 }
 
 int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
+    assert(poisson);
+
     LIS_VECTOR x;
     LIS_SOLVER solver;
 

@@ -11,8 +11,8 @@ int mr_fvm_scalar_interpolate(mr_ocforest *forest, mr_int cell_idx, mr_fvm_scala
 
 int mr_fvm_scalar_calc_boundary_flux(
     mr_ocforest *forest,
+    mr_boundary_condition *bc,
     mr_int cell_idx,
-    mr_boundary_condition *cond,
     mr_direction dir,
     mr_fvm_scalar_store_coef_cb store_implicit,
     mr_fvm_scalar_store_coef_cb store_source
