@@ -178,17 +178,16 @@ static int calc_coarse_fine_flux(
     curr_cell_type type,
     mr_fvm_scalar_store_coef_cb store
 ) {
-    mr_octree_cell *coarse_cell = mr_ocforest_get_cell(forest, coarse_cell_idx);
     mr_octree_cell *fine_cell = mr_ocforest_get_cell(forest, fine_cell_idx);
 
     mr_axis axis = mr_direction_get_axis(dir);
     mr_float middle[] = { fine_cell->x, fine_cell->y, fine_cell->z };
     middle[axis] += mr_direction_get_sign_mul(dir) * fine_cell->dim / 2.0f;
 
-    mr_float sqrt_inv_coef = sqrt(mr_manifold_inv_metric(forest->manifold, coarse_cell->chart_idx, middle, axis, axis));
-    mr_float area = mr_cell_face_area(forest, coarse_cell_idx, dir);
+    mr_float sqrt_inv_coef = sqrt(mr_manifold_inv_metric(forest->manifold, fine_cell->chart_idx, middle, axis, axis));
+    mr_float area = mr_cell_face_area(forest, fine_cell_idx, dir);
 
-    mr_float coef = sqrt_inv_coef / coarse_cell->dim * area * (type == CURR_CELL_FINE ? 1.0 : -1.0);
+    mr_float coef = sqrt_inv_coef / fine_cell->dim * area * (type == CURR_CELL_FINE ? 1.0 : -1.0);
     if (store.fn(forest, fine_cell_idx, -coef, store.userdata) != MR_SUCCESS) {
         return MR_FAILURE;
     }
@@ -223,7 +222,14 @@ int mr_fvm_scalar_calc_internal_flux(mr_ocforest *forest, mr_int cell_idx, mr_di
 
         case MR_OCTREE_CELL_NEIGHBOR_FINER:
             for (size_t i = 0; i < 4; ++i) {
-                if (calc_coarse_fine_flux(forest, cell_idx, cell_neighbor.neighbor_idx, dir, CURR_CELL_COARSE, store) != MR_SUCCESS) {
+                if (calc_coarse_fine_flux(
+                    forest,
+                    cell_idx,
+                    cell_neighbor.neighbor_indices[i],
+                    mr_direction_reflect(dir),
+                    CURR_CELL_COARSE,
+                    store
+                ) != MR_SUCCESS) {
                     return MR_FAILURE;
                 }
             }
