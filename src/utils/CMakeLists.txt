@@ -1,2 +1,1 @@
-target_sources(maniray PRIVATE dyn_array.c mem_pool.c xmalloc.c
-    algorithm.c)
+target_sources(maniray PRIVATE mem_pool.c xmalloc.c algorithm.c)

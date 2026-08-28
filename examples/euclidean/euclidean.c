@@ -95,7 +95,7 @@ static void bc_zero(mr_boundary_condition *bc, mr_int cell_idx, mr_direction dir
     MR_UNUSED(cell_idx);
     MR_UNUSED(dir);
 
-    *(mr_float *)out = 10.0;
+    *(mr_float *)out = 0.0;
 }
 
 static mr_float source_test(mr_fvm_poisson *poisson, mr_int cell_idx) {
