@@ -12,6 +12,13 @@
 mr_fvm_poisson *mr_fvm_poisson_create() {
     mr_fvm_poisson *poisson = xmalloc(sizeof(mr_fvm_poisson));
 
+    poisson->solver = mr_linear_system_solver_create();
+    if (!poisson->solver) {
+        free(poisson);
+
+        return NULL;
+    }
+
     poisson->forest = NULL;
     poisson->code_map = NULL;
 
@@ -36,6 +43,8 @@ void mr_fvm_poisson_destroy(mr_fvm_poisson *poisson) {
 
     mr_code_map_destroy(poisson->code_map);
     mr_ocforest_destroy(poisson->forest);
+
+    mr_linear_system_solver_destroy(poisson->solver);
 
     free(poisson);
 }
@@ -275,50 +284,35 @@ int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson) {
     return MR_SUCCESS;
 }
 
-typedef struct store_solution_userdata {
-    mr_fvm_poisson *poisson;
-    LIS_VECTOR x;
-} store_solution_userdata;
-
 static int store_solution(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
-    store_solution_userdata *ud = userdata;
+    mr_fvm_poisson *poisson = userdata;
 
     mr_int code = mr_ocforest_get_code(forest, cell_idx);
-    size_t col = mr_code_map_get_index(ud->poisson->code_map, code);
+    mr_int col = mr_code_map_get_index(poisson->code_map, code);
 
     mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
 
-    double value = 0.0;
-    int res = lis_vector_get_value(ud->x, col, &value);
+    mr_float64 value = 0.0;
+    int res = mr_linear_system_solver_get_solution(poisson->solver, col, &value);
     sol->value = value;
 
-    return res == LIS_SUCCESS ? MR_SUCCESS : MR_FAILURE;
+    return res;
 }
 
 int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
     assert(poisson);
 
-    LIS_VECTOR x;
-    LIS_SOLVER solver;
-
-    LIS_MATRIX A = poisson->discr_mat->inner;
-    LIS_VECTOR b = poisson->source_terms->inner;
-
-    lis_vector_duplicate(b, &x);
-    lis_vector_copy(b, x);
-
-    // Move to solver.c
-    lis_solver_create(&solver);
-    lis_solver_set_option("-initx_zeros 0 -i bicgstab -p ssor -tol 1.0e-8", solver);
-    lis_solve(A, b, x, solver);
-
-    store_solution_userdata ud = { poisson, x };
-    for (mr_index octree_idx = 0; (size_t)octree_idx < poisson->forest->nb_roots; ++octree_idx) {
-        mr_octree_cells_apply(poisson->forest, octree_idx, mr_octree_apply_cb_create(store_solution, &ud));
+    if (mr_linear_system_solver_set_matrix(poisson->solver, poisson->discr_mat) != MR_SUCCESS) {
+        return MR_FAILURE;
     }
 
-    lis_solver_destroy(solver);
-    lis_vector_destroy(x);
+    if (mr_linear_system_solve(poisson->solver, poisson->source_terms) != MR_SUCCESS) {
+        return MR_FAILURE;
+    }
+
+    for (mr_index octree_idx = 0; (size_t)octree_idx < poisson->forest->nb_roots; ++octree_idx) {
+        mr_octree_cells_apply(poisson->forest, octree_idx, mr_octree_apply_cb_create(store_solution, poisson));
+    }
 
     return MR_SUCCESS;
 }

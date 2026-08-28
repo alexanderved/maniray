@@ -141,7 +141,7 @@ mr_boundary_condition *setup_bc(mr_ocforest *forest) {
     mr_boundary_condition_fn bc_fn = bc_zero;
 
     mr_boundary_condition_type bc_types[][MR_NB_DIRECTIONS] = { { bc_type, bc_type, bc_type, bc_type, bc_type, bc_type } };
-    mr_boundary_condition_fn bc_fns[] = { bc_fn, bc_fn, bc_fn, bc_fn, bc_fn, bc_fn };
+    mr_boundary_condition_fn bc_fns[] = { bc_fn };
     mr_boundary_condition *bc = mr_boundary_condition_create(forest, bc_types, bc_fns);
 
     return bc;
@@ -190,6 +190,14 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     STOP_TIMER("Refine + Balance");
 
 
+    START_TIMER();
+
+    // mr_fvm_fit_grids_to_charts(forest);
+    // mr_fvm_connect_overset_grids(forest);
+
+    STOP_TIMER("Combine Grids");
+
+
     mr_fvm_poisson_ocforest_finalize(poisson);
     mr_fvm_poisson_set_boundary_condition(poisson, setup_bc(forest));
     mr_fvm_poisson_set_source_term_fn(poisson, source_test);
@@ -207,6 +215,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     START_TIMER();
 
+    mr_linear_system_solver_set_options(poisson->solver, MR_SOLVER_BICGSTAB, MR_PRECON_SSOR, 1.0e-8);
+    mr_linear_system_solver_print_debug_info(poisson->solver);
     mr_fvm_poisson_solve(poisson);
 
     STOP_TIMER("Solve");
@@ -216,14 +226,6 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(normalize_eq_res, NULL));
 
     printf("MIN / MAX: %f / %f\n", value_min, value_max);
-
-
-    START_TIMER();
-
-    // mr_fvm_fit_grids_to_charts(forest);
-    // mr_fvm_connect_overset_grids(forest);
-
-    STOP_TIMER("Combine Grids");
 
 
     printf("Number of nodes: %lu\n", mr_ocforest_nb_nodes_upper_bound(forest));

@@ -5,8 +5,7 @@
 #include "maniray/compute/octree.h"
 #include "maniray/compute/codes.h"
 #include "maniray/compute/fvm/boundary.h"
-#include "maniray/compute/linear_system/matrix.h"
-#include "maniray/compute/linear_system/vector.h"
+#include "maniray/compute/linear_system/solver.h"
 
 #define MR_POISSON_SOLUTION_EXTRA_FIELD 1
 
@@ -18,6 +17,8 @@ typedef struct mr_fvm_poisson mr_fvm_poisson;
 typedef mr_float (*mr_fvm_poisson_source_fn)(mr_fvm_poisson *poisson, mr_int cell_idx);
 
 struct mr_fvm_poisson {
+    mr_linear_system_solver *solver;
+
     mr_ocforest *forest;
     mr_code_map *code_map;
 
@@ -45,6 +46,7 @@ void mr_fvm_poisson_set_boundary_condition(mr_fvm_poisson *poisson, mr_boundary_
 
 int mr_fvm_poisson_build_discretization_matrix(mr_fvm_poisson *poisson);
 int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson);
+
 int mr_fvm_poisson_solve(mr_fvm_poisson *poisson);
 
 #endif // _MR_FVM_POISSON_H
