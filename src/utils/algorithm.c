@@ -42,6 +42,8 @@ void mr_generic_array_insert(
 ) {
     assert(arr);
     assert(value);
+    assert(pos != MR_INVALID_INDEX);
+    assert((size_t)pos <= end);
 
     mr_index offset = pos * size;
     char *ptr = (char *)arr + offset;

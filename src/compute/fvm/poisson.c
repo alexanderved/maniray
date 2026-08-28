@@ -309,7 +309,7 @@ int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
 
     // Move to solver.c
     lis_solver_create(&solver);
-    lis_solver_set_option("-print 2 -i bicgstab -p ssor -tol 1.0e-6", solver);
+    lis_solver_set_option("-initx_zeros 0 -i bicgstab -p ssor -tol 1.0e-8", solver);
     lis_solve(A, b, x, solver);
 
     store_solution_userdata ud = { poisson, x };

@@ -59,7 +59,7 @@ mr_float64 mr_sparse_row_get(mr_sparse_row *row, mr_int col) {
     }
 
     mr_index pos = MR_BINARY_SEARCH(row->cols, row->len, col);
-    return pos != MR_INVALID_INDEX && row->cols[pos] == col ? row->values[pos] : 0.0f;
+    return pos != MR_INVALID_INDEX && (size_t)pos < row->len && row->cols[pos] == col ? row->values[pos] : 0.0f;
 }
 
 void mr_sparse_row_set(mr_sparse_row *row, mr_int col, mr_float64 val) {
@@ -68,7 +68,7 @@ void mr_sparse_row_set(mr_sparse_row *row, mr_int col, mr_float64 val) {
     }
 
     mr_index pos = MR_BINARY_SEARCH(row->cols, row->len, col);
-    if (pos != MR_INVALID_INDEX && row->cols[pos] == col) {
+    if (pos != MR_INVALID_INDEX && (size_t)pos < row->len && row->cols[pos] == col) {
         row->values[pos] = val;
     } else {
         row_insert(row, col, val, pos != MR_INVALID_INDEX ? pos : 0);

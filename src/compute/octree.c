@@ -290,7 +290,7 @@ mr_int mr_ocforest_find_cell_with_code(mr_ocforest *forest, mr_int code) {
     assert(forest);
     assert(code != MR_INVALID_INDEX);
 
-    mr_int root_idx = code >> MR_NB_AXES * MR_OCTREE_MAX_LEVEL;
+    mr_int root_idx = code >> MR_NB_AXES * (MR_OCTREE_MAX_LEVEL + 2);
 
     mr_int node_idx = forest->roots[root_idx].node_idx;
     mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);

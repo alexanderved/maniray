@@ -67,7 +67,9 @@ static bool area_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     MR_UNUSED(userdata);
 
     mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
-    return /* cell->x >= -1.0 && cell->y <= 1.0f && */ cell->z >= -1.0 && cell->z <= 1.0;
+    return /* cell->x >= -1.0 && cell->y <= 1.0f && */ /* cell->z >= -1.0 && */ cell->z <= 0.0;
+
+    // return cell->y >= -2.0f && cell->y <= 2.0f && mr_norm2_2d(cell->x, cell->z) <= 2.5f;
 }
 
 static int interpolation_test(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
@@ -93,10 +95,12 @@ static void bc_zero(mr_boundary_condition *bc, mr_int cell_idx, mr_direction dir
     MR_UNUSED(cell_idx);
     MR_UNUSED(dir);
 
-    *(mr_float *)out = 0.0f;
+    *(mr_float *)out = 10.0;
 }
 
 static mr_float source_test(mr_fvm_poisson *poisson, mr_int cell_idx) {
+    // return 0.0f;
+
     if (cell_idx == point_cell_idx) {
         return 1.0f / mr_cell_volume(poisson->forest, cell_idx) - 1.0f / 512.0f;
     }
@@ -121,7 +125,12 @@ static int normalize_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata
     MR_UNUSED(userdata);
 
     mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
-    sol->value = (sol->value - value_min) / (value_max - value_min);
+
+    if (MR_ABS(value_max - value_min) > 1.0e-3f) {
+        sol->value = (sol->value - value_min) / (value_max - value_min);
+    } else {
+        sol->value = 1.0f;
+    }
 
     return MR_SUCCESS;
 }
@@ -170,11 +179,11 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     mr_octree_refine_all(forest, 0, 3);
 
-    // mr_float p[3] = { 0.5f, 0.5f, -0.5f };
-    // mr_octree_refine(forest, 0, mr_octree_cond_cb_create(point_refine, p), false);
+    mr_float p[3] = { 0.5f, 0.5f, -0.5f };
+    mr_octree_refine(forest, 0, mr_octree_cond_cb_create(point_refine, p), false);
     // mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false);
     mr_octree_refine(forest, 0, mr_octree_cond_cb_create(area_refine, NULL), false);
-    // mr_octree_balance(forest, 0);
+    mr_octree_balance(forest, 0);
 
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(setup_boundary, NULL));
 
@@ -205,6 +214,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(calc_bounds, NULL));
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(normalize_eq_res, NULL));
+
+    printf("MIN / MAX: %f / %f\n", value_min, value_max);
 
 
     START_TIMER();
