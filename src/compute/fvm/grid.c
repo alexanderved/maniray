@@ -45,9 +45,7 @@ static int activate_in_bounds(mr_ocforest *forest, mr_int idx, void *userdata) {
     MR_UNUSED(userdata);
 
     mr_octree_node *node = mr_ocforest_get_node(forest, idx);
-    if (is_node_in_bounds(forest, idx)) {
-        node->flags |= MR_OCTREE_NODE_FLAG_ACTIVE;
-    } else {
+    if (!is_node_in_bounds(forest, idx)) {
         disable_node(forest, node);
     }
 
@@ -349,10 +347,6 @@ void mr_fvm_connect_overset_grids(mr_ocforest *forest) {
         );
     }
 
-    struct timespec start, end;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-
-    size_t cnt = 0;
     size_t nb_updates = 0;
     do {
         nb_updates = 0;
@@ -364,14 +358,7 @@ void mr_fvm_connect_overset_grids(mr_ocforest *forest) {
                 mr_octree_apply_cb_create(setup_interpolation, &nb_updates)
             );
         }
-        ++cnt;
     } while (nb_updates != 0);
-
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
-                           (end.tv_nsec - start.tv_nsec) / 1000;
-
-    printf("Setup interpolation (%lu): %.2f ms\n", cnt, (double)elapsed_us / 1000.0);
 
     for (mr_index octree_idx = 0; (size_t)octree_idx < forest->nb_roots; ++octree_idx) {
         mr_octree_cells_apply(

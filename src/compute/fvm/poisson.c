@@ -129,8 +129,7 @@ static int write_matrix_coef(mr_ocforest *forest, mr_int cell_idx, mr_float coef
     size_t col = mr_code_map_get_index(mat_data->poisson->code_map, code);
 
     mr_float prev = mr_sparse_row_get(mat_data->temp_row, col);
-    // Subtract the coefficient so the matrix has the positive diagonal
-    mr_sparse_row_set(mat_data->temp_row, col, prev - coef);
+    mr_sparse_row_set(mat_data->temp_row, col, prev + coef);
 
     return MR_SUCCESS;
 }
@@ -216,8 +215,7 @@ static int write_rhs_coef(mr_ocforest *forest, mr_int cell_idx, mr_float coef, v
     mr_int code = mr_ocforest_get_code(forest, cell_idx);
     size_t col = mr_code_map_get_index(src_data->poisson->code_map, code);
 
-    // Subtract the coefficient to account for the matrix having a positive diagonal
-    src_data->source_term_arr[col] -= coef;
+    src_data->source_term_arr[col] += coef;
 
     return MR_SUCCESS;
 }
@@ -252,7 +250,7 @@ static int fill_source_term_array(mr_ocforest *forest, mr_int cell_idx, void *us
         mr_float value = src_data->poisson->source_fn ? src_data->poisson->source_fn(src_data->poisson, cell_idx)
                                                       : 0.0f;
         mr_float volume = mr_cell_volume(forest, cell_idx);
-        write_rhs_coef(forest, cell_idx, value * volume, src_data);
+        write_rhs_coef(forest, cell_idx, -value * volume, src_data);
     }
 
     return MR_SUCCESS;

@@ -54,7 +54,7 @@ vec3 hsv2rgb(vec3 c) {
 
 float vertical_coord() {
 #define VC_BOUND (OCTREE_DIM)// / 2.0)
-    float z = time / 3.0;
+    float z = time / 1.0;
     z = mod(z, VC_BOUND) - VC_BOUND / 2.0;
 
     return z;

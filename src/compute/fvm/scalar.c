@@ -91,8 +91,8 @@ int mr_fvm_scalar_calc_boundary_flux(
                 mr_float cell_coef = -sqrt_inv_coef * 3.0f / cell->dim * area;
                 mr_float neighbor_coef = sqrt_inv_coef * 1.0f / (3.0f * cell->dim) * area;
 
-                store_implicit.fn(forest, cell_idx, cell_coef, store_implicit.userdata);
-                store_implicit.fn(forest, cell_neighbor.neighbor_idx, neighbor_coef, store_implicit.userdata);
+                store_implicit.fn(forest, cell_idx, -cell_coef, store_implicit.userdata);
+                store_implicit.fn(forest, cell_neighbor.neighbor_idx, -neighbor_coef, store_implicit.userdata);
             }
 
             if (!mr_fvm_scalar_store_coef_cb_is_null(store_source)) {
@@ -100,8 +100,7 @@ int mr_fvm_scalar_calc_boundary_flux(
                 mr_boundary_condition_get_value(bc, cell_idx, dir, &value);
 
                 mr_float coef = sqrt_inv_coef * 8.0f * value / (3.0f * cell->dim) * area;
-                // Add minus sign because this term is moved over the equal sign to the rhs
-                store_source.fn(forest, cell_idx, -coef, store_source.userdata);
+                store_source.fn(forest, cell_idx, coef, store_source.userdata);
             }
 
             break;
@@ -113,8 +112,7 @@ int mr_fvm_scalar_calc_boundary_flux(
                 mr_boundary_condition_get_value(bc, cell_idx, dir, &value);
 
                 mr_float coef = value * area;
-                // Add minus sign because this term is moved over the equal sign to the rhs
-                store_source.fn(forest, cell_idx, -coef, store_source.userdata);
+                store_source.fn(forest, cell_idx, coef, store_source.userdata);
             }
 
             break;
@@ -149,10 +147,10 @@ static int calc_equal_size_flux(
     mr_float coef = sqrt_inv_coef / cell->dim * area;
 
     // TODO: Handle cross-derivative diffusion terms for non-orthogonal coordinates
-    if (store.fn(forest, cell_idx, -coef, store.userdata) != MR_SUCCESS) {
+    if (store.fn(forest, cell_idx, coef, store.userdata) != MR_SUCCESS) {
         return MR_FAILURE;
     }
-    return store.fn(forest, neighbor_cell_idx, coef, store.userdata);
+    return store.fn(forest, neighbor_cell_idx, -coef, store.userdata);
 }
 
 typedef enum curr_cell_type {
@@ -188,11 +186,11 @@ static int calc_coarse_fine_flux(
     mr_float area = mr_cell_face_area(forest, fine_cell_idx, dir);
 
     mr_float coef = sqrt_inv_coef / fine_cell->dim * area * (type == CURR_CELL_FINE ? 1.0 : -1.0);
-    if (store.fn(forest, fine_cell_idx, -coef, store.userdata) != MR_SUCCESS) {
+    if (store.fn(forest, fine_cell_idx, coef, store.userdata) != MR_SUCCESS) {
         return MR_FAILURE;
     }
 
-    ghost_cell_userdata ud = { store, coef };
+    ghost_cell_userdata ud = { store, -coef };
     return mr_fvm_calculate_ghost_cell(
         forest,
         coarse_cell_idx,

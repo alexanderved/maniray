@@ -56,6 +56,26 @@ static int setup_boundary(mr_ocforest *forest, mr_int cell_idx, void *userdata) 
     return MR_SUCCESS;
 }
 
+static int setup_hole(mr_ocforest *forest, mr_int node_idx, void *userdata) {
+    MR_UNUSED(userdata);
+
+    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+    if (mr_norm_inf(node->x, node->y, node->z) > 1.0f) {
+        return MR_SUCCESS;
+    }
+
+    node->flags &= ~MR_OCTREE_NODE_FLAG_ACTIVE;
+    for (mr_int i = 0; i < MR_OCTREE_NB_CELLS_IN_BLOCK; ++i) {
+        mr_int cell_idx = node->first_child + i;
+        mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
+
+        discr_data->type = MR_CELL_TYPE_EXTERIOR;
+        discr_data->grid_connection = 0;
+    }
+
+    return MR_SUCCESS;
+}
+
 static bool point_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     mr_float *p = userdata;
     mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
@@ -99,13 +119,13 @@ static void bc_zero(mr_boundary_condition *bc, mr_int cell_idx, mr_direction dir
 }
 
 static mr_float source_test(mr_fvm_poisson *poisson, mr_int cell_idx) {
-    // return 0.0f;
+    mr_float density = 1.0f;
 
     if (cell_idx == point_cell_idx) {
-        return 1.0f / mr_cell_volume(poisson->forest, cell_idx) - 1.0f / 512.0f;
+        return density / mr_cell_volume(poisson->forest, cell_idx) - density / 512.0f;
     }
 
-    return -1.0f / 512.0f;
+    return -density / 512.0f;
 }
 
 static mr_float value_min = 1e6f;
@@ -113,6 +133,11 @@ static mr_float value_max = -1e6f;
 
 static int calc_bounds(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     MR_UNUSED(userdata);
+
+    mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
+    if (discr_data->type == MR_CELL_TYPE_EXTERIOR) {
+        return MR_SUCCESS;
+    }
 
     mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
     value_min = MR_MIN(value_min, sol->value);
@@ -125,6 +150,9 @@ static int normalize_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata
     MR_UNUSED(userdata);
 
     mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
+
+    // mr_discretization_data *discr = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
+    // sol->value = (mr_float)discr->type / 4.0;
 
     if (MR_ABS(value_max - value_min) > 1.0e-3f) {
         sol->value = (sol->value - value_min) / (value_max - value_min);
@@ -158,7 +186,7 @@ mr_boundary_condition *setup_bc(mr_ocforest *forest) {
     } while (0)
 
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
-#define NB_ROOTS 1
+#define NB_ROOTS 2
     mr_octree_root_desc descs[NB_ROOTS] = {
         {
             .flags = 0,
@@ -168,6 +196,16 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
             .z = 0.0f,
             .dim = 8.0f,
         },
+#if NB_ROOTS == 2
+        {
+            .flags = 0,
+            .chart_idx = 0,
+            .x = 0.0f,
+            .y = 0.0f,
+            .z = 0.0f,
+            .dim = 4.0f,
+        },
+#endif
     };
 
     mr_fvm_poisson *poisson = mr_fvm_poisson_create();
@@ -179,12 +217,19 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     mr_octree_refine_all(forest, 0, 3);
 
-    mr_float p[3] = { 0.5f, 0.5f, -0.5f };
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_create(point_refine, p), false);
-    // mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false);
-    mr_octree_refine(forest, 0, mr_octree_cond_cb_create(area_refine, NULL), false);
-    mr_octree_balance(forest, 0);
+#if NB_ROOTS == 2
+    mr_octree_refine_all(forest, 1, 3);
+#endif
 
+    // mr_float p[3] = { 0.5f, 0.5f, -0.5f };
+    // mr_octree_refine(forest, 0, mr_octree_cond_cb_create(point_refine, p), false);
+    // mr_octree_refine(forest, 0, mr_octree_cond_cb_null(), mr_octree_cond_cb_create(point_refine, (mr_float[]) { -0.5f, -0.5f, -0.5f }), false);
+    // mr_octree_refine(forest, 0, mr_octree_cond_cb_create(area_refine, NULL), false);
+    // mr_octree_balance(forest, 0);
+
+#if NB_ROOTS == 2
+    mr_octree_leaves_apply(forest, 0, mr_octree_apply_cb_create(setup_hole, NULL));
+#endif
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(setup_boundary, NULL));
 
     STOP_TIMER("Refine + Balance");
@@ -192,8 +237,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     START_TIMER();
 
-    // mr_fvm_fit_grids_to_charts(forest);
-    // mr_fvm_connect_overset_grids(forest);
+    mr_fvm_fit_grids_to_charts(forest);
+    mr_fvm_connect_overset_grids(forest);
 
     STOP_TIMER("Combine Grids");
 
@@ -202,7 +247,11 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     mr_fvm_poisson_set_boundary_condition(poisson, setup_bc(forest));
     mr_fvm_poisson_set_source_term_fn(poisson, source_test);
 
+#if NB_ROOTS == 1
     point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.1f, -0.1f, -0.5f });
+#elif NB_ROOTS == 2
+    point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.1f, -1.1f, -2.5f });
+#endif
 
 
     START_TIMER();
@@ -222,8 +271,14 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     STOP_TIMER("Solve");
 
 
-    mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(calc_bounds, NULL));
-    mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(normalize_eq_res, NULL));
+    for (size_t i = 0; i < NB_ROOTS; ++i) {
+        mr_octree_cells_apply(forest, i, mr_octree_apply_cb_create(calc_bounds, NULL));
+    }
+
+    for (size_t i = 0; i < NB_ROOTS; ++i) {
+        mr_octree_cells_apply(forest, i, mr_octree_apply_cb_create(normalize_eq_res, NULL));
+    }
+
 
     printf("MIN / MAX: %f / %f\n", value_min, value_max);
 
