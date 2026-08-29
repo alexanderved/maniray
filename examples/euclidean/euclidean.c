@@ -1,3 +1,6 @@
+#define _GNU_SOURCE
+#include <fenv.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -118,6 +121,20 @@ static void bc_zero(mr_boundary_condition *bc, mr_int cell_idx, mr_direction dir
     *(mr_float *)out = 0.0;
 }
 
+static mr_float domain_volume = 0.0f;
+static int calc_volume(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    MR_UNUSED(userdata);
+
+    mr_discretization_data *disrc_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
+    if (disrc_data->type == MR_CELL_TYPE_EXTERIOR || disrc_data->type == MR_CELL_TYPE_INTERPOLATION) {
+        return MR_SUCCESS;
+    }
+
+    domain_volume += mr_cell_volume(forest, cell_idx);
+
+    return MR_SUCCESS;
+}
+
 static mr_float source_test(mr_fvm_poisson *poisson, mr_int cell_idx) {
     mr_float density = 1.0f;
 
@@ -150,9 +167,6 @@ static int normalize_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata
     MR_UNUSED(userdata);
 
     mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
-
-    // mr_discretization_data *discr = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
-    // sol->value = (mr_float)discr->type / 4.0;
 
     if (MR_ABS(value_max - value_min) > 1.0e-3f) {
         sol->value = (sol->value - value_min) / (value_max - value_min);
@@ -242,6 +256,12 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     STOP_TIMER("Combine Grids");
 
+
+    for (size_t i = 0; i < NB_ROOTS; ++i) {
+        mr_octree_cells_apply(forest, i, mr_octree_apply_cb_create(calc_volume, NULL));
+    }
+
+    printf("Domain volume: %f\n", domain_volume);
 
     mr_fvm_poisson_ocforest_finalize(poisson);
     mr_fvm_poisson_set_boundary_condition(poisson, setup_bc(forest));
@@ -414,6 +434,8 @@ int run_display() {
 }
 
 int main(int argc, char *argv[]) {
+    feenableexcept(FE_INVALID);
+
     mr_initialize(&argc, &argv);
 
 #define DISPLAY

@@ -135,8 +135,12 @@ static mr_direction calculate_ghost_cell_direction(mr_octree_cell *coarse_cell, 
         mr_float diff = get_cell_center_axis(fine_cell, axis) - get_cell_center_axis(coarse_cell, axis);
         if (MR_ABS(diff) > coarse_cell->dim / 2.0f) {
             mr_sign sign = diff < 0.0 ? MR_SIGN_MINUS : MR_SIGN_PLUS;
+            // In case of periodic boundaries cells might be located at opposite sides;
+            // therefore, the sign must be changed to the opposite one when the distance
+            // between cells is larger than the dimension of the coarse cell.
+            mr_sign periodic_sign = MR_ABS(diff) < coarse_cell->dim ? sign : (1 - sign);
 
-            return mr_direction_create(axis, sign);
+            return mr_direction_create(axis, periodic_sign);
         }
     }
 
