@@ -5,7 +5,7 @@ ExternalProject_Add(
     lis_external
     SOURCE_DIR        "${CMAKE_CURRENT_SOURCE_DIR}/lis"
     PREFIX            "${LIS_INSTALL_DIR}"
-    CONFIGURE_COMMAND  <SOURCE_DIR>/configure --prefix=${LIS_INSTALL_DIR} --enable-omp --enable-saamg
+    CONFIGURE_COMMAND  <SOURCE_DIR>/configure --prefix=${LIS_INSTALL_DIR} --enable-omp
     BUILD_COMMAND      make
     INSTALL_COMMAND    make install
 )

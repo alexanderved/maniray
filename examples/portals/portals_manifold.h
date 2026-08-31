@@ -7,7 +7,12 @@ static mr_manifold *setup_manifold() {
         { .bounds = chart_0_bounds },
         { .bounds = chart_1_2_bounds },
         { .bounds = chart_1_2_bounds },
-        { .bounds = chart_3_bounds, .period = chart_3_period }, // TODO: Add metric
+        {
+            .bounds = chart_3_bounds,
+            .period = chart_3_period,
+            .metric = chart_3_metric,
+            .inv_metric = chart_3_inverse_metric
+        },
     };
 
     mr_transition_desc transitions[NB_CHARTS * NB_CHARTS] = {

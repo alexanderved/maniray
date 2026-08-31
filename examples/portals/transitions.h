@@ -80,7 +80,7 @@ static int transition_0_3(const mr_transition *t, mr_float *p_out, const mr_floa
     mr_float theta = mr_atan2p(p_in[1] - mc[1], proj_radius(p_in, mc) - 1.0f);
     mr_float phi = mr_atan2p(p_in[2] - mc[2], p_in[0] - mc[0]);
 
-    if ((r1 < 0.75f && theta > MR_PI) || r2 < 0.75f) {
+    if ((r1 < 0.75f && theta > MR_PI) || (r2 < 0.75f && theta < MR_PI)) {
         theta += 2.0f * MR_PI;
     }
 

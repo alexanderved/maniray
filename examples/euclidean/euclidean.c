@@ -18,7 +18,7 @@
 #include "maniray/compute/fvm/grid.h"
 #include "maniray/compute/fvm/cell.h"
 #include "maniray/compute/fvm/interpolation.h"
-#include "maniray/compute/fvm/poisson.h"
+#include "maniray/compute/fvm/heat_dist.h"
 
 static bool chart_0_bounds(const mr_chart *chart, const mr_float *p) {
     MR_UNUSED(chart);
@@ -135,14 +135,14 @@ static int calc_volume(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     return MR_SUCCESS;
 }
 
-static mr_float source_test(mr_fvm_poisson *poisson, mr_int cell_idx) {
+static mr_float source_test(mr_fvm_heat_distance *heat_distance, mr_int cell_idx) {
     mr_float density = 1.0f;
 
     if (cell_idx == point_cell_idx) {
-        return density / mr_cell_volume(poisson->forest, cell_idx) - density / 512.0f;
+        return density / mr_cell_volume(heat_distance->forest, cell_idx); // - density / 512.0f;
     }
 
-    return -density / 512.0f;
+    return 0.0; //-density / 512.0f;
 }
 
 static mr_float value_min = 1e6f;
@@ -156,9 +156,9 @@ static int calc_bounds(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
         return MR_SUCCESS;
     }
 
-    mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
-    value_min = MR_MIN(value_min, sol->value);
-    value_max = MR_MAX(value_max, sol->value);
+    mr_fvm_heat_distance_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD);
+    value_min = MR_MIN(value_min, sol->dist);
+    value_max = MR_MAX(value_max, sol->dist);
 
     return MR_SUCCESS;
 }
@@ -166,20 +166,19 @@ static int calc_bounds(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
 static int normalize_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     MR_UNUSED(userdata);
 
-    mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
+    mr_fvm_heat_distance_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD);
 
     if (MR_ABS(value_max - value_min) > 1.0e-3f) {
-        sol->value = (sol->value - value_min) / (value_max - value_min);
+        sol->dist = (sol->dist - value_min) / (value_max - value_min);
     } else {
-        sol->value = 1.0f;
+        sol->dist = 1.0f;
     }
 
     return MR_SUCCESS;
 }
 
-// TODO: Investigate weird behaviour on partially refined grid
 mr_boundary_condition *setup_bc(mr_ocforest *forest) {
-    mr_boundary_condition_type bc_type = MR_BC_DIRICHLET;
+    mr_boundary_condition_type bc_type = MR_BC_NEUMANN;
     mr_boundary_condition_fn bc_fn = bc_zero;
 
     mr_boundary_condition_type bc_types[][MR_NB_DIRECTIONS] = { { bc_type, bc_type, bc_type, bc_type, bc_type, bc_type } };
@@ -200,7 +199,7 @@ mr_boundary_condition *setup_bc(mr_ocforest *forest) {
     } while (0)
 
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
-#define NB_ROOTS 2
+#define NB_ROOTS 1
     mr_octree_root_desc descs[NB_ROOTS] = {
         {
             .flags = 0,
@@ -222,14 +221,14 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #endif
     };
 
-    mr_fvm_poisson *poisson = mr_fvm_poisson_create();
-    mr_ocforest *forest = mr_fvm_poisson_ocforest_initialize(poisson, manifold, descs, NB_ROOTS);
+    mr_fvm_heat_distance *heat_distance = mr_fvm_heat_distance_create();
+    mr_ocforest *forest = mr_fvm_heat_distance_ocforest_initialize(heat_distance, manifold, descs, NB_ROOTS);
 
 
     INIT_TIMER();
     START_TIMER();
 
-    mr_octree_refine_all(forest, 0, 3);
+    mr_octree_refine_all(forest, 0, 4);
 
 #if NB_ROOTS == 2
     mr_octree_refine_all(forest, 1, 3);
@@ -263,12 +262,12 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     printf("Domain volume: %f\n", domain_volume);
 
-    mr_fvm_poisson_ocforest_finalize(poisson);
-    mr_fvm_poisson_set_boundary_condition(poisson, setup_bc(forest));
-    mr_fvm_poisson_set_source_term_fn(poisson, source_test);
+    mr_fvm_heat_distance_ocforest_finalize(heat_distance);
+    mr_fvm_heat_distance_set_boundary_condition(heat_distance, setup_bc(forest));
+    mr_fvm_heat_distance_set_initial_condition_fn(heat_distance, source_test);
 
 #if NB_ROOTS == 1
-    point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.1f, -0.1f, -0.5f });
+    point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.0f, 0.0f, 0.0f });
 #elif NB_ROOTS == 2
     point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.1f, -1.1f, -2.5f });
 #endif
@@ -276,19 +275,31 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     START_TIMER();
 
-    mr_fvm_poisson_build_discretization_matrix(poisson);
-    mr_fvm_poisson_build_source_terms(poisson);
+    mr_fvm_heat_distance_build_discretization_matrix(heat_distance);
+    mr_fvm_heat_distance_build_initial_condition_terms(heat_distance);
 
     STOP_TIMER("Build Equation");
 
 
     START_TIMER();
 
-    mr_linear_system_solver_set_options(poisson->solver, MR_SOLVER_BICGSTAB, MR_PRECON_SSOR, 1.0e-8);
-    mr_linear_system_solver_print_debug_info(poisson->solver);
-    mr_fvm_poisson_solve(poisson);
+    mr_linear_system_solver_set_options(heat_distance->solver, MR_SOLVER_BICGSTAB, MR_PRECON_SSOR, 1.0e-12);
+    mr_linear_system_solver_print_debug_info(heat_distance->solver);
+    mr_fvm_heat_distance_solve(heat_distance);
 
     STOP_TIMER("Solve");
+
+    mr_int other_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 3.5f, 3.5f, 3.5f });
+
+    mr_octree_cell *point_cell = mr_ocforest_get_cell(forest, point_cell_idx);
+    mr_fvm_heat_distance_solution *point_cell_sol = mr_ocforest_get_cell_extra(forest, point_cell_idx, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD);
+
+    mr_octree_cell *other_cell = mr_ocforest_get_cell(forest, other_cell_idx);
+    mr_fvm_heat_distance_solution *other_cell_sol = mr_ocforest_get_cell_extra(forest, other_cell_idx, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD);
+
+    printf("Point Cell %d (%f, %f, %f -- %f): %f\n",
+        point_cell_idx, point_cell->x, point_cell->y, point_cell->z, point_cell->dim, point_cell_sol->dist);
+    printf("Other Cell %d (%f, %f, %f): %f\n", other_cell_idx, other_cell->x, other_cell->y, other_cell->z, other_cell_sol->dist);
 
 
     for (size_t i = 0; i < NB_ROOTS; ++i) {
@@ -390,9 +401,9 @@ int run_display() {
     mr_storage_buffer_unmap(octree_buffer);
 
     // PDE solution buffer
-    mr_isize solution_size = mr_ocforest_nb_cells_upper_bound(forest) * sizeof(mr_fvm_poisson_solution);
+    mr_isize solution_size = mr_ocforest_nb_cells_upper_bound(forest) * sizeof(mr_fvm_heat_distance_solution);
     mr_storage_buffer *solution_buffer = mr_storage_buffer_create(1);
-    mr_storage_buffer_alloc(solution_buffer, solution_size, MR_STATIC_DRAW, mr_ocforest_get_cell_extra_array(forest, MR_POISSON_SOLUTION_EXTRA_FIELD));
+    mr_storage_buffer_alloc(solution_buffer, solution_size, MR_STATIC_DRAW, mr_ocforest_get_cell_extra_array(forest, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD));
 
     update_userdata update_data = { window, camera, camera_buffer };
     

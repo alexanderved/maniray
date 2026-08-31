@@ -22,8 +22,8 @@ struct mr_fvm_poisson {
     mr_ocforest *forest;
     mr_code_map *code_map;
 
-    mr_fvm_poisson_source_fn source_fn;
     mr_boundary_condition *bc;
+    mr_fvm_poisson_source_fn source_fn;
 
     mr_sparse_matrix *discr_mat;
     mr_vector *source_terms;
@@ -41,8 +41,8 @@ mr_ocforest *mr_fvm_poisson_ocforest_initialize(
 mr_ocforest *mr_fvm_poisson_ocforest_update(mr_fvm_poisson *poisson);
 void mr_fvm_poisson_ocforest_finalize(mr_fvm_poisson *poisson);
 
-void mr_fvm_poisson_set_source_term_fn(mr_fvm_poisson *poisson, mr_fvm_poisson_source_fn source_fn);
 void mr_fvm_poisson_set_boundary_condition(mr_fvm_poisson *poisson, mr_boundary_condition *bc);
+void mr_fvm_poisson_set_source_term_fn(mr_fvm_poisson *poisson, mr_fvm_poisson_source_fn source_fn);
 
 int mr_fvm_poisson_build_discretization_matrix(mr_fvm_poisson *poisson);
 int mr_fvm_poisson_build_source_terms(mr_fvm_poisson *poisson);

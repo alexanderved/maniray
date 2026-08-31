@@ -3,6 +3,7 @@
 #include <time.h>
 #include <math.h>
 
+#include "maniray/maniray.h"
 #include "maniray/display/engine.h"
 #include "maniray/display/camera.h"
 #include "maniray/display/uniform_buffer.h"
@@ -79,6 +80,7 @@ int run_display() {
     mr_manifold *manifold = setup_manifold();
     mr_ocforest *forest = setup_ocforest(manifold);
 
+    // Octree nodes buffer
     mr_isize octree_nodes_size = mr_ocforest_nb_nodes_upper_bound(forest) * sizeof(mr_octree_node);
     mr_isize octree_buffer_size = sizeof(mr_uint) + octree_nodes_size;
     mr_storage_buffer *octree_buffer = mr_storage_buffer_create(0);
@@ -89,6 +91,11 @@ int run_display() {
     memcpy(octree_buffer_ptr, &nb_roots, sizeof(mr_uint));
     memcpy(octree_buffer_ptr + sizeof(mr_uint), mr_ocforest_get_node_array(forest), octree_nodes_size);
     mr_storage_buffer_unmap(octree_buffer);
+
+    // PDE solution buffer
+    mr_isize solution_size = mr_ocforest_nb_cells_upper_bound(forest) * sizeof(mr_fvm_poisson_solution);
+    mr_storage_buffer *solution_buffer = mr_storage_buffer_create(1);
+    mr_storage_buffer_alloc(solution_buffer, solution_size, MR_STATIC_DRAW, mr_ocforest_get_cell_extra_array(forest, MR_POISSON_SOLUTION_EXTRA_FIELD));
 
     update_userdata update_data = { window, camera, camera_buffer };
     
@@ -128,7 +135,9 @@ int run_display() {
     return MR_SUCCESS;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    mr_initialize(&argc, &argv);
+
 #define DISPLAY
 #ifdef DISPLAY
     run_display();
@@ -136,6 +145,8 @@ int main() {
     mr_manifold *manifold = setup_manifold();
     mr_ocforest *forest = setup_ocforest(manifold);
 #endif
+
+    mr_finalize();
 
     return 0;
 }

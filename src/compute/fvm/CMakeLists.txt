@@ -3,4 +3,5 @@ target_sources(maniray PRIVATE grid.c
     poisson.c
     cell.c
     scalar.c
-    boundary.c)
+    boundary.c
+    heat_dist.c)

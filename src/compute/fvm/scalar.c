@@ -81,11 +81,9 @@ int mr_fvm_scalar_calc_boundary_flux(
             mr_axis axis = mr_direction_get_axis(dir);
             mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
 
-            // TODO: Move to helper function in cell.h
-            mr_float face_center[] = { cell->x, cell->y, cell->z };
-            face_center[axis] += mr_direction_get_sign_mul(dir) * cell->dim / 2.0f;
+            mr_float face_center[MR_NB_AXES] = { 0.0f };
+            mr_cell_face_center(forest, cell_idx, dir, face_center);
 
-            // TODO: Create helper function to calculate derivatives
             mr_float sqrt_inv_coef = sqrtf(mr_manifold_inv_metric(forest->manifold, cell->chart_idx, face_center, axis, axis));
             mr_float area = mr_cell_face_area(forest, cell_idx, dir);
 
@@ -134,7 +132,7 @@ static mr_float calc_center_diff_normal_coef(mr_ocforest *forest, mr_int cell_id
     mr_axis axis = mr_direction_get_axis(dir);
     mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
 
-    mr_float middle[] = { 0.0f };
+    mr_float middle[MR_NB_AXES] = { 0.0f };
     mr_cell_face_center(forest, cell_idx, dir, middle);
 
     mr_float sqrt_inv_coef = sqrt(mr_manifold_inv_metric(forest->manifold, cell->chart_idx, middle, axis, axis));
@@ -235,15 +233,15 @@ int mr_fvm_scalar_calc_internal_flux(mr_ocforest *forest, mr_int cell_idx, mr_di
 int mr_fvm_scalar_calc_transient_term(
     mr_ocforest *forest,
     mr_int cell_idx,
-    mr_float step,
+    mr_float64 step,
     mr_fvm_scalar_store_coef_cb store_implicit,
     mr_fvm_scalar_store_coef_cb store_explicit
 ) {
     assert(forest);
     assert(cell_idx != MR_INVALID_INDEX);
 
-    mr_float volume = mr_cell_volume(forest, cell_idx);
-    mr_float coef = 1.0 / step * volume;
+    mr_float64 volume = mr_cell_volume(forest, cell_idx);
+    mr_float64 coef = 1.0 / step * volume;
 
     if (!mr_fvm_scalar_store_coef_cb_is_null(store_implicit)) {
         store_implicit.fn(forest, cell_idx, coef, store_implicit.userdata);
@@ -254,4 +252,121 @@ int mr_fvm_scalar_calc_transient_term(
     }
 
     return MR_SUCCESS;
+}
+
+static int calc_forward_diff_derivative(
+    mr_ocforest *forest,
+    mr_int part_stencil[2],
+    mr_axis axis,
+    mr_fvm_scalar_store_coef_cb store
+) {
+    mr_int full_stencil[3] = { part_stencil[0], part_stencil[1], MR_INVALID_INDEX };
+
+    mr_octree_cell_neighbor neighbor = mr_octree_find_face_neighbor_cells(
+        forest,
+        full_stencil[1],
+        mr_direction_create(axis, MR_SIGN_PLUS)
+    );
+    assert(neighbor.type == MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE);
+    full_stencil[2] = neighbor.neighbor_idx;
+
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, full_stencil[0]);
+    mr_float64 divisor = 1.0 / (2.0 * cell->dim);
+
+    store.fn(forest, full_stencil[0], -3.0 * divisor, store.userdata);
+    store.fn(forest, full_stencil[1], 4.0 * divisor, store.userdata);
+    store.fn(forest, full_stencil[2], -divisor, store.userdata);
+
+    return MR_SUCCESS;
+}
+
+static int calc_backward_diff_derivative(
+    mr_ocforest *forest,
+    mr_int part_stencil[2],
+    mr_axis axis,
+    mr_fvm_scalar_store_coef_cb store
+) {
+    mr_int full_stencil[3] = { MR_INVALID_INDEX, part_stencil[0], part_stencil[1] };
+
+    mr_octree_cell_neighbor neighbor = mr_octree_find_face_neighbor_cells(
+        forest,
+        full_stencil[1],
+        mr_direction_create(axis, MR_SIGN_MINUS)
+    );
+    assert(neighbor.type == MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE);
+    full_stencil[0] = neighbor.neighbor_idx;
+
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, full_stencil[2]);
+    mr_float64 divisor = 1.0 / (2.0 * cell->dim);
+
+    store.fn(forest, full_stencil[0], divisor, store.userdata);
+    store.fn(forest, full_stencil[1], -4.0 * divisor, store.userdata);
+    store.fn(forest, full_stencil[2], 3.0 * divisor, store.userdata);
+
+    return MR_SUCCESS;
+}
+
+static int calc_center_diff_derivative(
+    mr_ocforest *forest,
+    mr_int stencil[2],
+    mr_fvm_scalar_store_coef_cb store
+) {
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, stencil[0]);
+    mr_float64 divisor = 1.0 / (2.0 * cell->dim);
+
+    store.fn(forest, stencil[0], -divisor, store.userdata);
+    store.fn(forest, stencil[1], divisor, store.userdata);
+
+    return MR_SUCCESS;
+}
+
+int mr_fvm_scalar_calc_center_derivative(
+    mr_ocforest *forest,
+    mr_int cell_idx,
+    mr_axis axis,
+    mr_fvm_scalar_store_coef_cb store
+) {
+    assert(forest);
+    assert(cell_idx != MR_INVALID_INDEX);
+    assert(!mr_fvm_scalar_store_coef_cb_is_null(store));
+
+    mr_octree_cell_neighbor backward_neighbor = mr_octree_find_face_neighbor_cells(
+        forest,
+        cell_idx,
+        mr_direction_create(axis, MR_SIGN_MINUS)
+    );
+    mr_octree_cell_neighbor forward_neighbor = mr_octree_find_face_neighbor_cells(
+        forest,
+        cell_idx,
+        mr_direction_create(axis, MR_SIGN_PLUS)
+    );
+
+    if (backward_neighbor.type != MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE) {
+        assert(forward_neighbor.type == MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE);
+        return calc_forward_diff_derivative(
+            forest,
+            (mr_int[]) { cell_idx, forward_neighbor.neighbor_idx },
+            axis,
+            store
+        );
+    }
+
+    if (forward_neighbor.type != MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE) {
+        assert(backward_neighbor.type == MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE);
+        return calc_backward_diff_derivative(
+            forest,
+            (mr_int[]) { backward_neighbor.neighbor_idx, cell_idx },
+            axis,
+            store
+        );
+    }
+
+    assert(backward_neighbor.type == MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE);
+    assert(forward_neighbor.type == MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE);
+
+    return calc_center_diff_derivative(
+        forest,
+        (mr_int[]) { backward_neighbor.neighbor_idx, forward_neighbor.neighbor_idx },
+        store
+    );
 }

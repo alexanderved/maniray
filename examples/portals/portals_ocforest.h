@@ -5,6 +5,8 @@
 #include "maniray/compute/math.h"
 #include "maniray/compute/octree.h"
 #include "maniray/compute/fvm/grid.h"
+#include "maniray/compute/fvm/poisson.h"
+#include "maniray/compute/fvm/cell.h"
 
 static bool adaptive_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     MR_UNUSED(userdata);
@@ -67,6 +69,71 @@ static int setup_boundary_chart3(mr_ocforest *forest, mr_int cell_idx, void *use
     return MR_SUCCESS;
 }
 
+static mr_int point_cell_idx = 0;
+
+static void bc_zero(mr_boundary_condition *bc, mr_int cell_idx, mr_direction dir, void *out) {
+    MR_UNUSED(bc);
+    MR_UNUSED(cell_idx);
+    MR_UNUSED(dir);
+
+    *(mr_float *)out = 0.0;
+}
+
+static mr_float source_test(mr_fvm_poisson *poisson, mr_int cell_idx) {
+    mr_float density = 8.0f;
+
+    if (cell_idx == point_cell_idx) {
+        return density / mr_cell_volume(poisson->forest, cell_idx);
+    }
+
+    return 0.0;
+}
+
+static mr_float value_min = 1e6f;
+static mr_float value_max = -1e6f;
+
+static int calc_bounds(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    MR_UNUSED(userdata);
+
+    mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
+    if (discr_data->type == MR_CELL_TYPE_EXTERIOR) {
+        return MR_SUCCESS;
+    }
+
+    mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
+    value_min = MR_MIN(value_min, sol->value);
+    value_max = MR_MAX(value_max, sol->value);
+
+    return MR_SUCCESS;
+}
+
+static int normalize_eq_res(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    MR_UNUSED(userdata);
+
+    mr_fvm_poisson_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_POISSON_SOLUTION_EXTRA_FIELD);
+
+    if (MR_ABS(value_max - value_min) > 1.0e-3f) {
+        sol->value = (sol->value - value_min) / (value_max - value_min);
+    } else {
+        sol->value = 1.0f;
+    }
+
+    return MR_SUCCESS;
+}
+
+mr_boundary_condition *setup_bc(mr_ocforest *forest) {
+    mr_boundary_condition_type bc_types[][MR_NB_DIRECTIONS] = {
+        { MR_BC_DIRICHLET, MR_BC_DIRICHLET, MR_BC_DIRICHLET, MR_BC_DIRICHLET, MR_BC_DIRICHLET, MR_BC_DIRICHLET },
+        { MR_BC_NONE, MR_BC_NONE, MR_BC_NONE, MR_BC_NONE, MR_BC_NONE, MR_BC_NONE },
+        { MR_BC_NONE, MR_BC_NONE, MR_BC_NONE, MR_BC_NONE, MR_BC_NONE, MR_BC_NONE },
+        { MR_BC_DIRICHLET, MR_BC_NONE, MR_BC_NONE, MR_BC_NONE, MR_BC_NONE, MR_BC_NONE },
+    };
+    mr_boundary_condition_fn bc_fns[] = { bc_zero, bc_zero, bc_zero, bc_zero };
+    mr_boundary_condition *bc = mr_boundary_condition_create(forest, bc_types, bc_fns);
+
+    return bc;
+}
+
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #define NB_ROOTS 4
     mr_octree_root_desc descs[NB_ROOTS] = {
@@ -103,7 +170,9 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
             .dim = 0.5f,
         },
     };
-    mr_ocforest *forest = mr_ocforest_create(manifold, descs, NB_ROOTS, (size_t[1]) { sizeof(mr_discretization_data) }, 1);
+    
+    mr_fvm_poisson *poisson = mr_fvm_poisson_create();
+    mr_ocforest *forest = mr_fvm_poisson_ocforest_initialize(poisson, manifold, descs, NB_ROOTS);
 
 
     struct timespec start, end;
@@ -139,6 +208,37 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
                  (end.tv_nsec - start.tv_nsec) / 1000;
 
     printf("Combine Grids: %.2f ms\n", (double)elapsed_us / 1000.0);
+
+
+
+
+
+    mr_fvm_poisson_ocforest_finalize(poisson);
+    mr_fvm_poisson_set_boundary_condition(poisson, setup_bc(forest));
+    mr_fvm_poisson_set_source_term_fn(poisson, source_test);
+
+    point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.0f, 0.0f, 0.0f });
+
+
+
+    mr_fvm_poisson_build_discretization_matrix(poisson);
+    mr_fvm_poisson_build_source_terms(poisson);
+
+    mr_linear_system_solver_set_options(poisson->solver, MR_SOLVER_BICGSTAB, MR_PRECON_SSOR, 1.0e-8);
+    mr_linear_system_solver_print_debug_info(poisson->solver);
+    mr_fvm_poisson_solve(poisson);
+
+
+    for (size_t i = 0; i < forest->nb_roots; ++i) {
+        mr_octree_cells_apply(forest, i, mr_octree_apply_cb_create(calc_bounds, NULL));
+    }
+
+    for (size_t i = 0; i < forest->nb_roots; ++i) {
+        mr_octree_cells_apply(forest, i, mr_octree_apply_cb_create(normalize_eq_res, NULL));
+    }
+
+
+    printf("MIN / MAX: %f / %f\n", value_min, value_max);
 
 
     printf("Ocforest number of nodes: %lu\n", mr_ocforest_nb_nodes_upper_bound(forest));

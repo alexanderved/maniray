@@ -22,8 +22,8 @@ mr_fvm_poisson *mr_fvm_poisson_create() {
     poisson->forest = NULL;
     poisson->code_map = NULL;
 
-    poisson->source_fn = NULL;
     poisson->bc = NULL;
+    poisson->source_fn = NULL;
 
     poisson->discr_mat = NULL;
     poisson->source_terms = NULL;
@@ -90,17 +90,17 @@ void mr_fvm_poisson_ocforest_finalize(mr_fvm_poisson *poisson) {
     poisson->code_map = mr_code_map_create_from_ocforest(poisson->forest);
 }
 
-void mr_fvm_poisson_set_source_term_fn(mr_fvm_poisson *poisson, mr_fvm_poisson_source_fn source_fn) {
-    assert(poisson);
-
-    poisson->source_fn = source_fn;
-}
-
 void mr_fvm_poisson_set_boundary_condition(mr_fvm_poisson *poisson, mr_boundary_condition *bc) {
     assert(poisson);
 
     mr_boundary_condition_destroy(poisson->bc);
     poisson->bc = bc;
+}
+
+void mr_fvm_poisson_set_source_term_fn(mr_fvm_poisson *poisson, mr_fvm_poisson_source_fn source_fn) {
+    assert(poisson);
+
+    poisson->source_fn = source_fn;
 }
 
 typedef struct discr_matrix_data {
@@ -122,13 +122,13 @@ static void discr_matrix_data_destroy(discr_matrix_data *data) {
     mr_sparse_row_destroy(data->temp_row);
 }
 
-static int write_matrix_coef(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
+static int write_matrix_coef(mr_ocforest *forest, mr_int cell_idx, mr_float64 coef, void *userdata) {
     discr_matrix_data *mat_data = userdata;
 
     mr_int code = mr_ocforest_get_code(forest, cell_idx);
-    size_t col = mr_code_map_get_index(mat_data->poisson->code_map, code);
+    mr_int col = mr_code_map_get_index(mat_data->poisson->code_map, code);
 
-    mr_float prev = mr_sparse_row_get(mat_data->temp_row, col);
+    mr_float64 prev = mr_sparse_row_get(mat_data->temp_row, col);
     mr_sparse_row_set(mat_data->temp_row, col, prev + coef);
 
     return MR_SUCCESS;
@@ -209,11 +209,11 @@ typedef struct source_term_data {
     mr_float64 *source_term_arr;
 } source_term_data;
 
-static int write_rhs_coef(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
+static int write_rhs_coef(mr_ocforest *forest, mr_int cell_idx, mr_float64 coef, void *userdata) {
     source_term_data *src_data = userdata;
 
     mr_int code = mr_ocforest_get_code(forest, cell_idx);
-    size_t col = mr_code_map_get_index(src_data->poisson->code_map, code);
+    mr_int col = mr_code_map_get_index(src_data->poisson->code_map, code);
 
     src_data->source_term_arr[col] += coef;
 
@@ -247,9 +247,9 @@ static int fill_source_term_array(mr_ocforest *forest, mr_int cell_idx, void *us
             }
         }
 
-        mr_float value = src_data->poisson->source_fn ? src_data->poisson->source_fn(src_data->poisson, cell_idx)
-                                                      : 0.0f;
-        mr_float volume = mr_cell_volume(forest, cell_idx);
+        mr_float64 value = src_data->poisson->source_fn ? src_data->poisson->source_fn(src_data->poisson, cell_idx)
+                                                        : 0.0f;
+        mr_float64 volume = mr_cell_volume(forest, cell_idx);
         write_rhs_coef(forest, cell_idx, -value * volume, src_data);
     }
 
@@ -299,6 +299,19 @@ static int store_solution(mr_ocforest *forest, mr_int cell_idx, void *userdata) 
 
 int mr_fvm_poisson_solve(mr_fvm_poisson *poisson) {
     assert(poisson);
+
+#if 0
+    for (mr_int i = 0; i < poisson->discr_mat->dim; ++i) {
+        for (mr_int j = poisson->discr_mat->rows[i]; j < poisson->discr_mat->rows[i + 1]; ++j) {
+            printf("%d:%f;", poisson->discr_mat->cols[j], poisson->discr_mat->values[j]);
+        }
+        printf("\n");
+    }
+
+    for (mr_int i = 0; i < poisson->source_terms->len; ++i) {
+        printf("%f\n", poisson->source_terms->data[i]);
+    }
+#endif
 
     if (mr_linear_system_solver_set_matrix(poisson->solver, poisson->discr_mat) != MR_SUCCESS) {
         return MR_FAILURE;
