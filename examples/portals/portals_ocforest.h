@@ -1,7 +1,6 @@
-#include <time.h>
-
 #include "maniray/utils/misc.h"
 #include "maniray/utils/types.h"
+#include "maniray/utils/perf.h"
 #include "maniray/compute/math.h"
 #include "maniray/compute/octree.h"
 #include "maniray/compute/fvm/grid.h"
@@ -175,8 +174,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     mr_ocforest *forest = mr_fvm_poisson_ocforest_initialize(poisson, manifold, descs, NB_ROOTS);
 
 
-    struct timespec start, end;
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    MR_INIT_TIMER(start, end);
+    MR_START_TIMER(start, end);
 
     size_t min_refinement_level = MR_OCTREE_MAX_LEVEL - 2;
     mr_octree_refine_all(forest, 0, min_refinement_level);
@@ -187,30 +186,19 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     mr_octree_refine(forest, 0, mr_octree_cond_cb_create(adaptive_refine, NULL), true);
     mr_octree_balance(forest, 0);
 
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    long long elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
-                           (end.tv_nsec - start.tv_nsec) / 1000;
-
-    printf("Refine + Balance: %.2f ms\n", (double)elapsed_us / 1000.0);
+    MR_STOP_TIMER(start, end, "Refine + Balance");
 
     
 
 
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    MR_START_TIMER(start, end);
 
     mr_fvm_fit_grids_to_charts(forest);
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(setup_boundary, NULL));
     mr_octree_cells_apply(forest, 3, mr_octree_apply_cb_create(setup_boundary_chart3, NULL));
     mr_fvm_connect_overset_grids(forest);
 
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    elapsed_us = (end.tv_sec - start.tv_sec) * 1000000LL + 
-                 (end.tv_nsec - start.tv_nsec) / 1000;
-
-    printf("Combine Grids: %.2f ms\n", (double)elapsed_us / 1000.0);
-
-
-
+    MR_STOP_TIMER(start, end, "Combine Grids");
 
 
     mr_fvm_poisson_ocforest_finalize(poisson);
@@ -219,12 +207,22 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     point_cell_idx = mr_octree_locate_point_in_cell(forest, 1, (mr_float[]) { 0.0f, -0.12f, 0.0f });
 
+
+    MR_START_TIMER(start, end);
+
     mr_fvm_poisson_build_discretization_matrix(poisson);
     mr_fvm_poisson_build_source_terms(poisson);
+
+    MR_STOP_TIMER(start, end, "Build Equation");
+
+
+    MR_START_TIMER(start, end);
 
     mr_linear_system_solver_set_options(poisson->solver, MR_SOLVER_BICGSTAB, MR_PRECON_SSOR, 1.0e-8);
     mr_linear_system_solver_print_debug_info(poisson->solver);
     mr_fvm_poisson_solve(poisson);
+
+    MR_STOP_TIMER(start, end, "Solve");
 
 
     for (size_t i = 0; i < forest->nb_roots; ++i) {

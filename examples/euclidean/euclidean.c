@@ -1,9 +1,5 @@
-#define _GNU_SOURCE
-#include <fenv.h>
-
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 #include <math.h>
 
 #include "maniray/maniray.h"
@@ -12,6 +8,7 @@
 #include "maniray/display/uniform_buffer.h"
 #include "maniray/display/storage_buffer.h"
 #include "maniray/utils/misc.h"
+#include "maniray/utils/perf.h"
 #include "maniray/compute/math.h"
 #include "maniray/compute/manifold.h"
 #include "maniray/compute/octree.h"
@@ -188,16 +185,6 @@ mr_boundary_condition *setup_bc(mr_ocforest *forest) {
     return bc;
 }
 
-#define INIT_TIMER() struct timespec __start, __end;
-#define START_TIMER() clock_gettime(CLOCK_MONOTONIC, &__start);
-#define STOP_TIMER(str) \
-    do { \
-        clock_gettime(CLOCK_MONOTONIC, &__end); \
-        long long __elapsed_us = (__end.tv_sec - __start.tv_sec) * 1000000LL + \
-                            (__end.tv_nsec - __start.tv_nsec) / 1000; \
-        printf("%s: %.2f ms\n", (str), (double)__elapsed_us / 1000.0); \
-    } while (0)
-
 mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #define NB_ROOTS 1
     mr_octree_root_desc descs[NB_ROOTS] = {
@@ -225,8 +212,8 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     mr_ocforest *forest = mr_fvm_heat_distance_ocforest_initialize(heat_distance, manifold, descs, NB_ROOTS);
 
 
-    INIT_TIMER();
-    START_TIMER();
+    MR_INIT_TIMER(start, end);
+    MR_START_TIMER(start, end);
 
     mr_octree_refine_all(forest, 0, 4);
 
@@ -245,15 +232,15 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #endif
     mr_octree_cells_apply(forest, 0, mr_octree_apply_cb_create(setup_boundary, NULL));
 
-    STOP_TIMER("Refine + Balance");
+    MR_STOP_TIMER(start, end, "Refine + Balance");
 
 
-    START_TIMER();
+    MR_START_TIMER(start, end);
 
     mr_fvm_fit_grids_to_charts(forest);
     mr_fvm_connect_overset_grids(forest);
 
-    STOP_TIMER("Combine Grids");
+    MR_STOP_TIMER(start, end, "Combine Grids");
 
 
     for (size_t i = 0; i < NB_ROOTS; ++i) {
@@ -273,21 +260,21 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #endif
 
 
-    START_TIMER();
+    MR_START_TIMER(start, end);
 
     mr_fvm_heat_distance_build_discretization_matrix(heat_distance);
     mr_fvm_heat_distance_build_initial_condition_terms(heat_distance);
 
-    STOP_TIMER("Build Equation");
+    MR_STOP_TIMER(start, end, "Build Equation");
 
 
-    START_TIMER();
+    MR_START_TIMER(start, end);
 
     mr_linear_system_solver_set_options(heat_distance->solver, MR_SOLVER_BICGSTAB, MR_PRECON_SSOR, 1.0e-12);
     mr_linear_system_solver_print_debug_info(heat_distance->solver);
     mr_fvm_heat_distance_solve(heat_distance);
 
-    STOP_TIMER("Solve");
+    MR_STOP_TIMER(start, end, "Solve");
 
     mr_int other_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 3.5f, 3.5f, 3.5f });
 
@@ -445,8 +432,6 @@ int run_display() {
 }
 
 int main(int argc, char *argv[]) {
-    feenableexcept(FE_INVALID);
-
     mr_initialize(&argc, &argv);
 
 #define DISPLAY
