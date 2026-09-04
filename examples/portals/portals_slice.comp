@@ -170,9 +170,9 @@ int convert_3(vec3 p_in, out vec3 p_out) {
 }
 
 float vertical_coord() {
-#define Z_BOUNDS (OCTREE_DIM)
+#define Z_BOUNDS (OCTREE_DIM / 2.0)
 
-    float z = time / 3.0;
+    float z = time / 2.0;
     z = z - floor(z / Z_BOUNDS) * Z_BOUNDS;
     z -= Z_BOUNDS / 2.0;
 
@@ -189,6 +189,11 @@ float ninf3(vec3 v) {
     vec3 a = abs(v);
 
     return max(max(a.x, a.y), a.z);
+}
+
+float sdf_square(vec2 p, float dim) {
+    vec2 d = abs(p) - dim;
+    return length(max(d, 0.0)) + min(max(d.x, d.y),0.0);
 }
 
 bool is_inside_node(int node_idx, vec3 coords) {
@@ -261,13 +266,14 @@ vec4 draw_octree_slice(vec2 xy) {
 
             vec3 center = vec3(nodes[idx].x, nodes[idx].y, nodes[idx].z);
             float hdim = nodes[idx].dim / 2.0;
-            float c = hdim - ninf2(chart_coords[i].xy - center.xy);
+            // float c = hdim - ninf2(chart_coords[i].xy - center.xy);
+            float c = -sdf_square(chart_coords[i].xy - center.xy, hdim);
 
             if (!bool(nodes[idx].flags & NODE_FLAG_ACTIVE)) {
                 continue;
             }
 
-            if (c < 0.001 * nodes[root_idx].dim) {
+            if (c < 0.005) {
                 res = vec4(0.0, 0.0, 0.0, 1.0);
                 continue;
             }
@@ -275,7 +281,7 @@ vec4 draw_octree_slice(vec2 xy) {
             // float color_shift = float(i + 1);
             // res = vec4(hsv2rgb(vec3(50.0 * color_shift / 355.0, 1.0, 1.0)), 1.0);
 
-            float h = (1.0 - sol[cell_idx].dist) * 64.0 + 0.05;
+            float h = (1.0 - sol[cell_idx].dist) * 16.0 + 0.15;
             res = vec4(hot(h), 1.0);
         }
     }

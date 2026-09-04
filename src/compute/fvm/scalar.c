@@ -9,7 +9,7 @@
 
 typedef struct store_with_mul_userdata {
     mr_fvm_scalar_store_coef_cb store;
-    mr_float mul;
+    mr_float64 mul;
 } store_with_mul_userdata;
 
 
@@ -369,4 +369,48 @@ int mr_fvm_scalar_calc_center_derivative(
         (mr_int[]) { backward_neighbor.neighbor_idx, forward_neighbor.neighbor_idx },
         store
     );
+}
+
+typedef struct store_derivative_in_grad_userdata {
+    mr_fvm_scalar_store_coef_cb *component_store;
+    mr_axis axis;
+} store_derivative_in_grad_userdata;
+
+static int store_derivative_in_grad(mr_ocforest *forest, mr_int cell_idx, mr_float64 coef, void *userdata) {
+    store_derivative_in_grad_userdata *ud = userdata;
+    mr_fvm_scalar_store_coef_cb *component_store = ud->component_store;
+
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_float center[] = { cell->x, cell->y, cell->z };
+
+    for (mr_int i = 0; i < MR_NB_AXES; ++i) {
+        // TODO: Precompute inv metric coefficients
+        mr_float inv_metric_comp = mr_manifold_inv_metric(forest->manifold, cell->chart_idx, center, i, ud->axis);
+        if (component_store[i].fn(forest, cell_idx, inv_metric_comp * coef, component_store[i].userdata) != MR_SUCCESS) {
+            return MR_FAILURE;
+        }
+    }
+
+    return MR_SUCCESS;
+}
+
+int mr_fvm_scalar_calc_center_gradient(
+    mr_ocforest *forest,
+    mr_int cell_idx,
+    mr_fvm_scalar_store_coef_cb component_store[MR_NB_AXES]
+) {
+    assert(forest);
+    assert(component_store);
+    assert(cell_idx != MR_INVALID_INDEX);
+    
+    store_derivative_in_grad_userdata ud = { .component_store = component_store };
+    mr_fvm_scalar_store_coef_cb der_store = mr_fvm_scalar_store_coef_cb_create(store_derivative_in_grad, &ud);
+    for (mr_int j = 0; j < MR_NB_AXES; ++j) {
+        ud.axis = j;
+        if (mr_fvm_scalar_calc_center_derivative(forest, cell_idx, j, der_store) != MR_SUCCESS) {
+            return MR_FAILURE;
+        }
+    }
+
+    return MR_SUCCESS;
 }

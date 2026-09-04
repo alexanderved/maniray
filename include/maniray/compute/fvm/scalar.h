@@ -35,4 +35,10 @@ int mr_fvm_scalar_calc_center_derivative(
     mr_fvm_scalar_store_coef_cb store
 );
 
+int mr_fvm_scalar_calc_center_gradient(
+    mr_ocforest *forest,
+    mr_int cell_idx,
+    mr_fvm_scalar_store_coef_cb component_store[MR_NB_AXES]
+);
+
 #endif // _MR_FVM_SCALAR_H
