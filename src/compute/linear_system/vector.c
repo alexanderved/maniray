@@ -13,7 +13,10 @@ mr_vector *mr_vector_create(mr_float64 *arr, mr_int len) {
 
     lis_vector_create(LIS_COMM_WORLD, &vec->inner);
     lis_vector_set_size(vec->inner, 0, vec->len);
+
     lis_vector_set(vec->inner, vec->data);
+    vec->inner->status = LIS_VECTOR_ASSEMBLED;
+    vec->inner->is_destroy = LIS_FALSE;
 
     return vec;
 }

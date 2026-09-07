@@ -12,13 +12,13 @@
 #define MR_ABS(a) ((a) > 0 ? (a) : -(a))
 #define MR_MOD(a, b) ((((a) % (b)) + (b)) % (b))
 
-mr_float mr_norm2_2d(mr_float x, mr_float y);
-mr_float mr_norm2(mr_float x, mr_float y, mr_float z);
-mr_float mr_norm_inf(mr_float x, mr_float y, mr_float z);
+mr_float64 mr_norm2_2d(mr_float64 x, mr_float64 y);
+mr_float64 mr_norm2(mr_float64 x, mr_float64 y, mr_float64 z);
+mr_float64 mr_norm_inf(mr_float64 x, mr_float64 y, mr_float64 z);
 
-mr_float mr_wrap(mr_float x, mr_float min, mr_float max);
+mr_float64 mr_wrap(mr_float64 x, mr_float64 min, mr_float64 max);
 
 // `atan2` in range [0; 2pi)
-mr_float mr_atan2p(mr_float y, mr_float x);
+mr_float64 mr_atan2p(mr_float64 y, mr_float64 x);
 
 #endif // _MR_MATH_H

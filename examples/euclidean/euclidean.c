@@ -118,20 +118,6 @@ static void bc_zero(mr_boundary_condition *bc, mr_int cell_idx, mr_direction dir
     *(mr_float *)out = 0.0;
 }
 
-static mr_float domain_volume = 0.0f;
-static int calc_volume(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
-    MR_UNUSED(userdata);
-
-    mr_discretization_data *disrc_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
-    if (disrc_data->type == MR_CELL_TYPE_EXTERIOR || disrc_data->type == MR_CELL_TYPE_INTERPOLATION) {
-        return MR_SUCCESS;
-    }
-
-    domain_volume += mr_cell_volume(forest, cell_idx);
-
-    return MR_SUCCESS;
-}
-
 static mr_float source_test(mr_fvm_heat_distance *heat_distance, mr_int cell_idx) {
     mr_float density = 1.0f;
 
@@ -215,7 +201,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     MR_INIT_TIMER(start, end);
     MR_START_TIMER(start, end);
 
-    mr_octree_refine_all(forest, 0, 4);
+    mr_octree_refine_all(forest, 0, 3);
 
 #if NB_ROOTS == 2
     mr_octree_refine_all(forest, 1, 3);
@@ -243,12 +229,6 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     MR_STOP_TIMER(start, end, "Combine Grids");
 
 
-    for (size_t i = 0; i < NB_ROOTS; ++i) {
-        mr_octree_cells_apply(forest, i, mr_octree_apply_cb_create(calc_volume, NULL));
-    }
-
-    printf("Domain volume: %f\n", domain_volume);
-
     mr_fvm_heat_distance_ocforest_finalize(heat_distance);
     mr_fvm_heat_distance_set_boundary_condition(heat_distance, setup_bc(forest));
     mr_fvm_heat_distance_set_initial_condition_fn(heat_distance, source_test);
@@ -256,7 +236,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 #if NB_ROOTS == 1
     point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.0f, 0.0f, 0.0f });
 #elif NB_ROOTS == 2
-    point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.1f, -1.1f, -2.5f });
+    point_cell_idx = mr_octree_locate_point_in_cell(forest, 1, (mr_float[]) { 0.0f, 0.0f, 0.0f });
 #endif
 
 
@@ -270,13 +250,13 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     MR_START_TIMER(start, end);
 
-    mr_linear_system_solver_set_options(heat_distance->solver, MR_SOLVER_BICGSTAB, MR_PRECON_SSOR, 1.0e-12);
+    mr_linear_system_solver_set_options(heat_distance->solver, MR_SOLVER_GMRES, MR_PRECON_ILUT, 1.0e-12);
     mr_linear_system_solver_print_debug_info(heat_distance->solver);
     mr_fvm_heat_distance_solve(heat_distance);
 
     MR_STOP_TIMER(start, end, "Solve");
 
-    mr_int other_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 3.5f, 3.5f, 3.5f });
+    mr_int other_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.125f, -0.125f, -0.125f });
 
     mr_octree_cell *point_cell = mr_ocforest_get_cell(forest, point_cell_idx);
     mr_fvm_heat_distance_solution *point_cell_sol = mr_ocforest_get_cell_extra(forest, point_cell_idx, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD);

@@ -205,7 +205,7 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
     mr_fvm_poisson_set_boundary_condition(poisson, setup_bc(forest));
     mr_fvm_poisson_set_source_term_fn(poisson, source_test);
 
-    point_cell_idx = mr_octree_locate_point_in_cell(forest, 1, (mr_float[]) { 0.0f, -0.12f, 0.0f });
+    point_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.0f, -1.42f, 1.5f });
 
 
     MR_START_TIMER(start, end);
