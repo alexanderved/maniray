@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <math.h>
+#include <float.h>
 
 #include "maniray/utils/xmalloc.h"
 #include "maniray/compute/math.h"
@@ -8,7 +9,7 @@
 #include "maniray/compute/fvm/interpolation.h"
 #include "maniray/compute/fvm/heat_dist.h"
 #include "maniray/compute/fvm/scalar.h"
-#include "maniray/compute/fvm/cell.h"
+#include "maniray/compute/geometry.h"
 
 // TODO: Make adaptive (equal to h^2)
 #define TIME_STEP 0.0625
@@ -188,19 +189,7 @@ static int fill_discr_matrix(mr_ocforest *forest, mr_int cell_idx, void *userdat
         return res;
     }
 
-    if (cell_idx != 7679 || true) {
-        mr_sparse_matrix_builder_add_row(mat_data->poisson_mat_builder, mat_data->temp_row);
-    } else {
-        mr_sparse_row *row = mr_sparse_row_create();
-
-        mr_int code = mr_ocforest_get_code(forest, cell_idx);
-        mr_int col = mr_code_map_get_index(mat_data->heat_distance->code_map, code);
-
-        mr_sparse_row_set(row, col, 1.0);
-
-        mr_sparse_matrix_builder_add_row(mat_data->poisson_mat_builder, row);
-        mr_sparse_row_destroy(row);
-    }
+    mr_sparse_matrix_builder_add_row(mat_data->poisson_mat_builder, mat_data->temp_row);
 
     mr_fvm_scalar_calc_transient_term(forest, cell_idx, TIME_STEP, store_cb, mr_fvm_scalar_store_coef_cb_null());
     mr_sparse_matrix_builder_add_row(mat_data->heat_eq_mat_builder, mat_data->temp_row);
@@ -377,58 +366,22 @@ static int calculate_gradients(mr_ocforest *forest, mr_int cell_idx, void *userd
         return MR_FAILURE;
     }
 
-    /* mr_float64 grad_norm = mr_norm2(grad[0], grad[1], grad[2]);
-    printf("%.16e\n", grad_norm); */
-
-    /* if (grad_norm < 1.0e-12) {
-        grad_norm = 1.0;
-    } */
-
     mr_fvm_heat_distance_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD);
-    // sol->dist = grad_norm;
 
     sol->grad[0] = grad[0];
     sol->grad[1] = grad[1];
     sol->grad[2] = grad[2];
 
-#if 0
-    sol->grad[0] = -grad[0] / grad_norm;
-    sol->grad[1] = -grad[1] / grad_norm;
-    sol->grad[2] = -grad[2] / grad_norm;
-
-    mr_int code = mr_ocforest_get_code(forest, cell_idx);
-    mr_int col = mr_code_map_get_index(heat_distance->code_map, code);
-
-    // printf("%.16f, %.16f, %.16f\n", ud->poisson_rhs->data[col] * 100000.0, grad_norm * 100000.0, -ud->poisson_rhs->data[col] / grad_norm);
-
-    if (cell_idx != 7679) {
-        ud->poisson_rhs->data[col] = -ud->poisson_rhs->data[col] / grad_norm;
-    } else {
-        ud->poisson_rhs->data[col] = 0.0;
-
-        printf("CELL %d -- %d\n", cell_idx, col);
-    }
-
-    printf("%f\n", ud->poisson_rhs->data[col]);
-
-
-    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
-    if (mr_is_boundary_cell(forest, cell_idx, MR_DIRECTION_PL_X) && MR_ABS(cell->y) < 0.5f && MR_ABS(cell->z) < 0.5f) {
-        mr_float64 m = 1e18;
-        printf("Cell %d: (%f, %f, %f)\n", cell_idx, grad[0] * m, grad[1] * m, grad[2] * m);
-    }
-#endif
-
     return MR_SUCCESS;
 }
 
-typedef struct calc_flux_userdata {
+typedef struct calc_der_userdata {
     mr_fvm_heat_distance *heat_distance;
     mr_float64 value;
-} calc_flux_userdata;
+} calc_der_userdata;
 
-static int calc_flux(mr_ocforest *forest, mr_int cell_idx, mr_float64 coef, void *userdata) {
-    calc_flux_userdata *ud = userdata;
+static int calc_der(mr_ocforest *forest, mr_int cell_idx, mr_float64 coef, void *userdata) {
+    calc_der_userdata *ud = userdata;
 
     mr_int code = mr_ocforest_get_code(forest, cell_idx);
     mr_int col = mr_code_map_get_index(ud->heat_distance->code_map, code);
@@ -438,28 +391,6 @@ static int calc_flux(mr_ocforest *forest, mr_int cell_idx, mr_float64 coef, void
         return MR_FAILURE;
     }
     ud->value += value * coef;
-
-    return MR_SUCCESS;
-}
-
-typedef struct calc_face_gradient_norm_userdata {
-    mr_fvm_heat_distance *heat_distance;
-    mr_float64 value;
-    mr_float64 grad[MR_NB_AXES];
-} calc_face_gradient_norm_userdata;
-
-static int calc_face_gradient_norm(mr_ocforest *forest, mr_int cell_idx, mr_float coef, void *userdata) {
-    calc_face_gradient_norm_userdata *ud = userdata;
-
-    mr_fvm_heat_distance_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD);
-    mr_float64 grad_norm = mr_norm2(sol->grad[0], sol->grad[1], sol->grad[2]);
-
-    ud->value += grad_norm * coef;
-    // printf("%d: %f\n", cell_idx, coef);
-
-    ud->grad[0] += sol->grad[0] * coef;
-    ud->grad[1] += sol->grad[1] * coef;
-    ud->grad[2] += sol->grad[2] * coef;
 
     return MR_SUCCESS;
 }
@@ -475,68 +406,79 @@ static int fill_poisson_rhs(mr_ocforest *forest, mr_int cell_idx, void *userdata
     mr_int code = mr_ocforest_get_code(forest, cell_idx);
     mr_int col = mr_code_map_get_index(ud->heat_distance->code_map, code);
 
+
     mr_discretization_data *discr_data = mr_ocforest_get_cell_extra(forest, cell_idx, MR_DISCR_DATA_EXTRA_FIELD);
 
-    if (discr_data->type == MR_CELL_TYPE_EXTERIOR || discr_data->type == MR_CELL_TYPE_INTERPOLATION /* || cell_idx == 7679 */) {
+    if (discr_data->type == MR_CELL_TYPE_EXTERIOR || discr_data->type == MR_CELL_TYPE_INTERPOLATION) {
         ud->poisson_rhs->data[col] = 0.0;
     } else {
         for (mr_direction dir = MR_DIRECTION_MI_X; dir <= MR_DIRECTION_PL_Z; ++dir) {
-            calc_flux_userdata flux_store_ud = { ud->heat_distance, 0.0 };
-            mr_fvm_scalar_store_coef_cb flux_store_cb = mr_fvm_scalar_store_coef_cb_create(calc_flux, &flux_store_ud);
+            calc_der_userdata grad_uds[] = {
+                { ud->heat_distance, 0.0 },
+                { ud->heat_distance, 0.0 },
+                { ud->heat_distance, 0.0 },
+            };
 
-            int res = MR_SUCCESS;
-            if (mr_is_boundary_cell(forest, cell_idx, dir)) {
-                res = mr_fvm_scalar_calc_boundary_flux(
-                    forest,
-                    ud->heat_distance->bc,
-                    cell_idx,
-                    dir,
-                    flux_store_cb,
-                    mr_fvm_scalar_store_coef_cb_null() // TODO: Add store for it
-                );
-            } else {
-                res = mr_fvm_scalar_calc_internal_flux(forest, cell_idx, dir, flux_store_cb);
+            mr_fvm_scalar_store_coef_cb grad_store[] = {
+                mr_fvm_scalar_store_coef_cb_create(calc_der, &grad_uds[0]),
+                mr_fvm_scalar_store_coef_cb_create(calc_der, &grad_uds[1]),
+                mr_fvm_scalar_store_coef_cb_create(calc_der, &grad_uds[2]),
+            };
+
+            mr_fvm_scalar_calc_face_gradient(forest, cell_idx, dir, grad_store);
+
+            mr_float64 grad[] = { grad_uds[0].value, grad_uds[1].value, grad_uds[2].value };
+            mr_float64 grad_norm = mr_norm2(grad[0], grad[1], grad[2]);
+
+            mr_axis axis = mr_direction_get_axis(dir);
+            mr_float inv_metric_sqrt = sqrt(mr_cell_face_center_inv_metric(forest, cell_idx, dir, axis, axis));
+
+            mr_float64 grad_flux = 0.0;
+            if (!mr_is_boundary_cell(forest, cell_idx, dir)) {
+                mr_float64 signed_area = mr_cell_face_area(forest, cell_idx, dir) * mr_direction_get_sign_mul(dir);
+                grad_flux = grad[axis] * signed_area / inv_metric_sqrt;
             }
 
-            if (res != MR_SUCCESS) {
-                return res;
-            }
-
-            calc_face_gradient_norm_userdata face_grad_store_ud = { ud->heat_distance, 0.0, { 0.0 } };
-            mr_fvm_interpolation_cb face_grad_store_cb = mr_fvm_interpolation_cb_create(calc_face_gradient_norm, &face_grad_store_ud);
-
-            if (mr_fvm_interpolate_face_value(forest, cell_idx, dir, face_grad_store_cb) != MR_SUCCESS) {
-                return MR_FAILURE;
-            }
-
-            // mr_float64 norm = mr_norm2(face_grad_store_ud.grad[0], face_grad_store_ud.grad[1], face_grad_store_ud.grad[2]);
-            ud->poisson_rhs->data[col] += -flux_store_ud.value / face_grad_store_ud.value;
+            ud->poisson_rhs->data[col] += grad_flux / grad_norm;
         }
-    }
-
-    // printf("%.16e\n", ud->poisson_rhs->data[col]);
-
-    if (0) {
-        mr_float64 value = 0.0;
-        mr_linear_system_solver_get_solution(ud->heat_distance->solver, col, &value);
-        printf("%.16e\n", value);
     }
 
     return MR_SUCCESS;
 }
 
-static int store_solution(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
-    mr_fvm_heat_distance *heat_distance = userdata;
+typedef struct min_value_userdata {
+    mr_fvm_heat_distance *heat_distance;
+    mr_float64 min;
+} min_value_userdata;
+
+static int find_min_value(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    min_value_userdata *ud = userdata;
 
     mr_int code = mr_ocforest_get_code(forest, cell_idx);
-    mr_int col = mr_code_map_get_index(heat_distance->code_map, code);
+    mr_int col = mr_code_map_get_index(ud->heat_distance->code_map, code);
 
-    // mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    mr_float64 value = 0.0;
+    int res = mr_linear_system_solver_get_solution(ud->heat_distance->solver, col, &value);
+    ud->min = MR_MIN(ud->min, value);
+
+    return res;
+}
+
+static int store_solution(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
+    min_value_userdata *ud = userdata;
+
+    mr_int code = mr_ocforest_get_code(forest, cell_idx);
+    mr_int col = mr_code_map_get_index(ud->heat_distance->code_map, code);
     mr_fvm_heat_distance_solution *sol = mr_ocforest_get_cell_extra(forest, cell_idx, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD);
 
     mr_float64 value = 0.0;
-    int res = mr_linear_system_solver_get_solution(heat_distance->solver, col, &value);
-    sol->dist = value;
+    int res = mr_linear_system_solver_get_solution(ud->heat_distance->solver, col, &value);
+    sol->dist = value - ud->min;
+
+    mr_float64 grad_norm = mr_norm2(sol->grad[0], sol->grad[1], sol->grad[2]);
+    sol->grad[0] = -sol->grad[0] / grad_norm;
+    sol->grad[1] = -sol->grad[1] / grad_norm;
+    sol->grad[2] = -sol->grad[2] / grad_norm;
 
     return res;
 }
@@ -587,8 +529,14 @@ int mr_fvm_heat_distance_solve(mr_fvm_heat_distance *heat_distance) {
         return MR_FAILURE;
     }
 
+    min_value_userdata ud = { heat_distance, DBL_MAX };
+
     for (mr_index octree_idx = 0; (size_t)octree_idx < heat_distance->forest->nb_roots; ++octree_idx) {
-        mr_octree_cells_apply(heat_distance->forest, octree_idx, mr_octree_apply_cb_create(store_solution, heat_distance));
+        mr_octree_cells_apply(heat_distance->forest, octree_idx, mr_octree_apply_cb_create(find_min_value, &ud));
+    }
+
+    for (mr_index octree_idx = 0; (size_t)octree_idx < heat_distance->forest->nb_roots; ++octree_idx) {
+        mr_octree_cells_apply(heat_distance->forest, octree_idx, mr_octree_apply_cb_create(store_solution, &ud));
     }
 
     mr_vector_destroy(poisson_rhs);

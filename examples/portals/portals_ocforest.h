@@ -5,7 +5,7 @@
 #include "maniray/compute/octree.h"
 #include "maniray/compute/fvm/grid.h"
 #include "maniray/compute/fvm/poisson.h"
-#include "maniray/compute/fvm/cell.h"
+#include "maniray/compute/geometry.h"
 
 static bool adaptive_refine(mr_ocforest *forest, mr_int cell_idx, void *userdata) {
     MR_UNUSED(userdata);

@@ -122,7 +122,7 @@ int find_node(int root_idx, vec3 coords) {
 }
 
 vec4 draw_octree_slice(vec2 xy) {
-    float z = vertical_coord(); // -0.0625;
+    float z = vertical_coord();
     vec3 coords = vec3(xy.x, z, xy.y);
 
     vec4 res = vec4(0.5, 0.0, 0.0, 1.0);

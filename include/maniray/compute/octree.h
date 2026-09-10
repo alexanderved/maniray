@@ -119,6 +119,9 @@ void *mr_ocforest_get_cell_extra_array(mr_ocforest *forest, mr_int field);
 mr_int mr_ocforest_get_code(mr_ocforest *forest, mr_int cell_idx);
 mr_int mr_ocforest_find_cell_with_code(mr_ocforest *forest, mr_int code);
 
+bool mr_ocforest_is_node_active(mr_ocforest *forest, mr_int node_idx);
+bool mr_ocforest_is_cell_active(mr_ocforest *forest, mr_int cell_idx);
+
 int mr_octree_leaves_apply(mr_ocforest *forest, mr_index octree_idx, mr_octree_apply_cb apply);
 int mr_octree_cells_apply(mr_ocforest *forest, mr_index octree_idx, mr_octree_apply_cb apply);
 

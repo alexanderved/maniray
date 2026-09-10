@@ -13,7 +13,7 @@
 #include "maniray/compute/manifold.h"
 #include "maniray/compute/octree.h"
 #include "maniray/compute/fvm/grid.h"
-#include "maniray/compute/fvm/cell.h"
+#include "maniray/compute/geometry.h"
 #include "maniray/compute/fvm/interpolation.h"
 #include "maniray/compute/fvm/heat_dist.h"
 
@@ -250,13 +250,13 @@ mr_ocforest *setup_ocforest(mr_manifold *manifold) {
 
     MR_START_TIMER(start, end);
 
-    mr_linear_system_solver_set_options(heat_distance->solver, MR_SOLVER_GMRES, MR_PRECON_ILUT, 1.0e-12);
+    mr_linear_system_solver_set_options(heat_distance->solver, MR_SOLVER_BICGSTAB, MR_PRECON_SSOR, 1.0e-8);
     mr_linear_system_solver_print_debug_info(heat_distance->solver);
     mr_fvm_heat_distance_solve(heat_distance);
 
     MR_STOP_TIMER(start, end, "Solve");
 
-    mr_int other_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.125f, -0.125f, -0.125f });
+    mr_int other_cell_idx = mr_octree_locate_point_in_cell(forest, 0, (mr_float[]) { 0.375f, -0.125f, -0.125f });
 
     mr_octree_cell *point_cell = mr_ocforest_get_cell(forest, point_cell_idx);
     mr_fvm_heat_distance_solution *point_cell_sol = mr_ocforest_get_cell_extra(forest, point_cell_idx, MR_HEAT_DIST_SOLUTION_EXTRA_FIELD);

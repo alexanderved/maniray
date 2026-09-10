@@ -4,7 +4,7 @@
 
 #include "maniray/compute/math.h"
 #include "maniray/compute/fvm/interpolation.h"
-#include "maniray/compute/fvm/cell.h"
+#include "maniray/compute/geometry.h"
 #include "maniray/utils/misc.h"
 
 // Q for triQuadratic interpolation
@@ -348,14 +348,14 @@ int mr_fvm_interpolate_face_value(mr_ocforest *forest, mr_int cell_idx, mr_direc
     mr_octree_node *node = mr_ocforest_get_node(forest, cell->parent);
 
     mr_octree_cell_neighbor neighbor = mr_octree_find_face_neighbor_cells(forest, cell_idx, face_dir);
+    if (neighbor.node_idx == MR_INVALID_INDEX || !mr_ocforest_is_node_active(forest, neighbor.node_idx)) {
+        mr_float face_center[MR_NB_AXES] = { 0.0f };
+        mr_cell_face_center(forest, cell_idx, face_dir, face_center);
+
+        return mr_fvm_perform_interpolation(forest, node->root, face_center, interp);
+    }
 
     switch (neighbor.type) {
-        case MR_OCTREE_CELL_NEIGHBOR_NONE: ;
-            mr_float face_center[MR_NB_AXES] = { 0.0f };
-            mr_cell_face_center(forest, cell_idx, face_dir, face_center);
-
-            return mr_fvm_perform_interpolation(forest, node->root, face_center, interp);
-
         case MR_OCTREE_CELL_NEIGHBOR_EQUAL_SIZE:
             if (interp.fn(forest, cell_idx, 0.5, interp.userdata) != MR_SUCCESS) {
                 return MR_FAILURE;
@@ -366,4 +366,6 @@ int mr_fvm_interpolate_face_value(mr_ocforest *forest, mr_int cell_idx, mr_direc
             // TODO: Implement for coarse-fine
             abort();
     }
+
+    return MR_FAILURE;
 }

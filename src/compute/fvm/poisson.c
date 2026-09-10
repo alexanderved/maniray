@@ -7,7 +7,7 @@
 #include "maniray/compute/fvm/interpolation.h"
 #include "maniray/compute/fvm/poisson.h"
 #include "maniray/compute/fvm/scalar.h"
-#include "maniray/compute/fvm/cell.h"
+#include "maniray/compute/geometry.h"
 
 mr_fvm_poisson *mr_fvm_poisson_create() {
     mr_fvm_poisson *poisson = xmalloc(sizeof(mr_fvm_poisson));

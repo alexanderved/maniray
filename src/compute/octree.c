@@ -307,6 +307,22 @@ mr_int mr_ocforest_find_cell_with_code(mr_ocforest *forest, mr_int code) {
     return MR_INVALID_INDEX;
 }
 
+bool mr_ocforest_is_node_active(mr_ocforest *forest, mr_int node_idx) {
+    assert(forest);
+    assert(node_idx != MR_INVALID_INDEX);
+
+    mr_octree_node *node = mr_ocforest_get_node(forest, node_idx);
+    return node->flags & MR_OCTREE_NODE_FLAG_ACTIVE;
+}
+
+bool mr_ocforest_is_cell_active(mr_ocforest *forest, mr_int cell_idx) {
+    assert(forest);
+    assert(cell_idx != MR_INVALID_INDEX);
+
+    mr_octree_cell *cell = mr_ocforest_get_cell(forest, cell_idx);
+    return mr_ocforest_is_node_active(forest, cell->parent);
+}
+
 static int mr_octree_leaves_apply_ext(mr_ocforest *forest, mr_index octree_idx, mr_octree_apply_cb apply, bool recursive) {
     assert(forest);
     assert((size_t)octree_idx < forest->nb_roots);
